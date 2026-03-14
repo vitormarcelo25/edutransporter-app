@@ -6,7 +6,8 @@ import {
 import { FontAwesome5, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
-//Front end vitorsantana choro foi grande mas tá aí, o login tá pronto e estiloso!KSKSKS
+
+// Front end vitorsantana choro foi grande mas tá aí, o login tá pronto e estiloso! KSKSKS
 // Tipo pra gente saber se é aluno ou motorista logando
 type LoginType = 'motorista' | 'aluno';
 
@@ -149,6 +150,11 @@ export default function Index() {
             </TouchableOpacity>
 
             <View style={{ height: 30 }} />
+            
+            {/* Mostrando a versão do app aqui embaixo} */}
+            <Text style={styles.versionText}>v 1.0.0</Text>
+            
+            <View style={{ height: 20 }} />
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
@@ -270,4 +276,6 @@ const styles = StyleSheet.create({
     marginTop: 20 
   },
   loginLinkText: { color: '#94A3B8', fontSize: 15 },
+  
+  versionText: { color: '#94A3B8', fontSize: 12, textAlign: 'center', opacity: 0.6 }
 });
