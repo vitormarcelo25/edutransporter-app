@@ -1,288 +1,246 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
-  StyleSheet, Text, View, TouchableOpacity, 
-  ScrollView, SafeAreaView, StatusBar, Image, Switch
+  StyleSheet, 
+  Text, 
+  View, 
+  TouchableOpacity, 
+  SafeAreaView, 
+  ScrollView, 
+  Switch,
+  Platform
 } from 'react-native';
-import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import { useRouter, Stack } from 'expo-router';
 
-// Tipagem para simular os perfis
-type UserRole = 'motorista' | 'aluno';
+// Voltamos pra importação direta e limpa! 
+// Isso resolve o erro de "useApp não é uma função" no seu VS Code.
+// Se o visualizador web daqui reclamar de "Could not resolve", pode ignorar que no Expo Go vai rodar perfeito.
+import { useApp } from './_layout';
 
 export default function Perfil() {
   const router = useRouter();
   
-  // Para efeitos de demonstração, podes alternar isto para ver como fica cada perfil
-  const [userRole, setUserRole] = useState<UserRole>('motorista');
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-
-  // Cores base do projeto
-  const theme = {
-    primary: '#00C6FF', 
-    background: '#F4F7F6',
-    white: '#FFFFFF',
-    textDark: '#333333',
-    textLight: '#888888',
-    red: '#DC3545',   
-    tealCard: '#38b29c', 
-    darkGreen: '#005b44', 
-  };
-
-  // Dados falsos (Mocks) baseados no papel (role)
-  const userData = {
-    motorista: {
-      nome: 'João Silva',
-      email: 'joao.motorista@edutransporter.com',
-      telefone: '+55 11 99999-0000',
-      veiculo: 'Autocarro Escolar - Placa ABC-1234',
-      cidade: 'São Paulo, SP'
-    },
-    aluno: {
-      nome: 'Ana Costa',
-      email: 'ana.costa@escola.com',
-      telefone: '+55 11 98888-1111',
-      escola: 'Escola Central de São Paulo',
-      cidade: 'São Paulo, SP'
-    }
-  };
-
-  const currentUser = userData[userRole];
+  // Pegando tudo o que a gente precisa direto do nosso contexto
+  const { isDark, toggleTheme, theme, userRole } = useApp();
 
   return (
-    <>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      {/* Escondendo a barra nativa do Expo pra ficar um design mais limpo */}
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-        <StatusBar barStyle="dark-content" />
+      
+      {/* Cabeçalho padrão com botão de voltar */}
+      <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity onPress={() => router.replace('/home')} style={styles.backBtn}>
+          <Feather name="arrow-left" size={24} color={theme.text} />
+        </TouchableOpacity>
+        <Text style={[styles.title, { color: theme.text }]}>Meu Perfil</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false}>
         
-        {/* Cabeçalho */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Feather name="arrow-left" size={24} color={theme.textDark} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Meu Perfil</Text>
+        {/* Informação do Utilizador - Agora é dinâmico, muda se for aluno ou motorista */}
+        <View style={styles.profileBox}>
+          <View style={[styles.avatar, { backgroundColor: theme.gold }]}>
+            {/* Gambiarrazinha pra mostrar a inicial certa do nome */}
+            <Text style={styles.avatarTxt}>
+              {userRole === 'aluno' ? 'G' : 'C'}
+            </Text>
+          </View>
+          <Text style={[styles.name, { color: theme.text }]}>
+            {userRole === 'aluno' ? 'Gabriel Silva' : 'Carlos Mendes'}
+          </Text>
+          <Text style={{ color: theme.subtext, fontSize: 14 }}>
+            {userRole === 'aluno' ? 'Aluno da Rota ORE 3' : 'Motorista do ORE 3'}
+          </Text>
           
-          {/* Botão temporário para testar a mudança de perfil */}
-          <TouchableOpacity onPress={() => setUserRole(userRole === 'motorista' ? 'aluno' : 'motorista')}>
-            <Feather name="refresh-cw" size={20} color={theme.tealCard} />
+          <TouchableOpacity style={[styles.editBadge, { backgroundColor: isDark ? '#233248' : '#E2E8F0' }]}>
+            <Text style={{ color: theme.text, fontSize: 12, fontWeight: 'bold' }}>Editar Perfil</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          
-          {/* Secção de Foto e Nome */}
-          <View style={styles.profileHeader}>
-            <View style={styles.avatarContainer}>
-              <View style={[styles.avatarPlaceholder, { backgroundColor: theme.tealCard }]}>
-                <Text style={styles.avatarText}>{currentUser.nome.charAt(0)}</Text>
+        {/* Secção: Configurações da Conta */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.subtext }]}>Conta & Privacidade</Text>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            
+            <TouchableOpacity style={styles.item}>
+              <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(49,130,206,0.1)' }]}>
+                  <Feather name="user" size={18} color="#3182CE" />
+                </View>
+                <Text style={[styles.label, { color: theme.text }]}>Dados Pessoais</Text>
               </View>
-              <TouchableOpacity style={styles.editAvatarBtn} activeOpacity={0.8}>
-                <Feather name="camera" size={14} color={theme.white} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.userName}>{currentUser.nome}</Text>
-            <Text style={styles.userRoleBadge}>
-              {userRole === 'motorista' ? 'Motorista Responsável' : 'Aluno / Responsável'}
-            </Text>
-          </View>
-
-          {/* Secção: Informações da Conta */}
-          <Text style={styles.sectionTitle}>Informações da Conta</Text>
-          <View style={styles.card}>
-            <View style={styles.infoRow}>
-              <View style={styles.infoIconBox}>
-                <Feather name="mail" size={18} color={theme.tealCard} />
-              </View>
-              <View style={styles.infoTextContainer}>
-                <Text style={styles.infoLabel}>E-mail</Text>
-                <Text style={styles.infoValue}>{currentUser.email}</Text>
-              </View>
-            </View>
-            <View style={styles.divider} />
-
-            <View style={styles.infoRow}>
-              <View style={styles.infoIconBox}>
-                <Feather name="phone" size={18} color={theme.tealCard} />
-              </View>
-              <View style={styles.infoTextContainer}>
-                <Text style={styles.infoLabel}>Telemóvel</Text>
-                <Text style={styles.infoValue}>{currentUser.telefone}</Text>
-              </View>
-            </View>
-            <View style={styles.divider} />
-
-            <View style={styles.infoRow}>
-              <View style={styles.infoIconBox}>
-                <Feather name="map-pin" size={18} color={theme.tealCard} />
-              </View>
-              <View style={styles.infoTextContainer}>
-                <Text style={styles.infoLabel}>Cidade</Text>
-                <Text style={styles.infoValue}>{currentUser.cidade}</Text>
-              </View>
-            </View>
-            <View style={styles.divider} />
-
-            <View style={styles.infoRow}>
-              <View style={styles.infoIconBox}>
-                <FontAwesome5 name={userRole === 'motorista' ? 'bus' : 'school'} size={16} color={theme.tealCard} />
-              </View>
-              <View style={styles.infoTextContainer}>
-                <Text style={styles.infoLabel}>{userRole === 'motorista' ? 'Veículo' : 'Escola'}</Text>
-                <Text style={styles.infoValue}>
-                  {userRole === 'motorista' ? userData.motorista.veiculo : userData.aluno.escola}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Secção: Configurações */}
-          <Text style={styles.sectionTitle}>Configurações</Text>
-          <View style={styles.card}>
-            <TouchableOpacity style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                <Feather name="lock" size={20} color={theme.textDark} />
-                <Text style={styles.settingText}>Alterar Senha</Text>
-              </View>
-              <Feather name="chevron-right" size={20} color={theme.textLight} />
+              <Feather name="chevron-right" size={20} color={theme.subtext} />
             </TouchableOpacity>
-            <View style={styles.divider} />
+            
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-            <View style={styles.settingRow}>
-              <View style={styles.settingLeft}>
-                <Feather name="bell" size={20} color={theme.textDark} />
-                <Text style={styles.settingText}>Notificações</Text>
+            <TouchableOpacity style={styles.item}>
+              <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(72,187,120,0.1)' }]}>
+                  <Feather name="bell" size={18} color="#48BB78" />
+                </View>
+                <Text style={[styles.label, { color: theme.text }]}>Notificações</Text>
               </View>
+              <Feather name="chevron-right" size={20} color={theme.subtext} />
+            </TouchableOpacity>
+            
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+            <TouchableOpacity style={styles.item}>
+              <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(159,122,234,0.1)' }]}>
+                  <Feather name="shield" size={18} color="#9F7AEA" />
+                </View>
+                <Text style={[styles.label, { color: theme.text }]}>Segurança e Senha</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={theme.subtext} />
+            </TouchableOpacity>
+
+          </View>
+        </View>
+
+        {/* Secção: Configurações Visuais (Tema Claro/Escuro) */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.subtext }]}>Aparência</Text>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.item}>
+              <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: isDark ? 'rgba(245,166,35,0.1)' : '#FEF3C7' }]}>
+                  <Feather name={isDark ? "moon" : "sun"} size={18} color={theme.gold} />
+                </View>
+                <Text style={[styles.label, { color: theme.text }]}>Modo Escuro (Dark Mode)</Text>
+              </View>
+              {/* Switchzinho maroto pra ligar e desligar o tema na hora */}
               <Switch 
-                value={notificationsEnabled} 
-                onValueChange={setNotificationsEnabled}
-                trackColor={{ false: '#ddd', true: theme.tealCard }}
-                thumbColor={'#FFF'}
+                value={isDark} 
+                onValueChange={toggleTheme}
+                trackColor={{ false: '#CBD5E1', true: theme.gold }}
+                thumbColor={isDark ? '#FFF' : '#F4F3F4'}
               />
             </View>
-            <View style={styles.divider} />
+          </View>
+        </View>
 
-            <TouchableOpacity style={styles.settingRow} onPress={() => router.push('/telas/ajuda')}>
-              <View style={styles.settingLeft}>
-                <Feather name="help-circle" size={20} color={theme.textDark} />
-                <Text style={styles.settingText}>Central de Ajuda</Text>
+        {/* Secção: Suporte e Ajuda */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.subtext }]}>Suporte</Text>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            
+            {/* Esse botão já leva direto pra tela de ajuda que a gente fez */}
+            <TouchableOpacity style={styles.item} onPress={() => router.push('/ajuda')}>
+              <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(237,137,54,0.1)' }]}>
+                  <Ionicons name="help-buoy-outline" size={18} color="#ED8936" />
+                </View>
+                <Text style={[styles.label, { color: theme.text }]}>Central de Ajuda</Text>
               </View>
-              <Feather name="chevron-right" size={20} color={theme.textLight} />
+              <Feather name="chevron-right" size={20} color={theme.subtext} />
+            </TouchableOpacity>
+            
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+            <TouchableOpacity style={styles.item}>
+              <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(160,174,192,0.1)' }]}>
+                  <Feather name="info" size={18} color={theme.subtext} />
+                </View>
+                <Text style={[styles.label, { color: theme.text }]}>Termos e Privacidade</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={theme.subtext} />
+            </TouchableOpacity>
+
+          </View>
+        </View>
+
+        {/* Secção: Sair da Conta */}
+        <View style={styles.section}>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {/* Botão de logout voltando pra tela de login */}
+            <TouchableOpacity style={styles.item} onPress={() => router.replace('/')}>
+              <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
+                  <Feather name="log-out" size={18} color="#EF4444" />
+                </View>
+                <Text style={[styles.label, { color: '#EF4444' }]}>Sair da Conta</Text>
+              </View>
             </TouchableOpacity>
           </View>
+        </View>
+        
+        {/* Espaço extra no final pro scroll não ficar cortado pelo menu de baixo */}
+        <View style={{ height: 120 }} />
+      </ScrollView>
 
-          {/* Botão de Sair */}
-          <TouchableOpacity 
-            style={styles.logoutBtn}
-            onPress={() => router.replace('/login')}
-          >
-            <Feather name="log-out" size={20} color={theme.red} />
-            <Text style={[styles.logoutText, { color: theme.red }]}>Terminar Sessão</Text>
-          </TouchableOpacity>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      </SafeAreaView>
-    </>
+      {/* Navegação Inferior (Navbar Flutuante) igual a das outras telas */}
+      <View style={[styles.nav, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => router.replace('/home')}>
+          <Feather name="home" size={24} color={theme.subtext} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.navBtn} onPress={() => router.replace('/mapa')}>
+          <Feather name="map-pin" size={24} color={theme.subtext} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.navBtn} onPress={() => router.replace('/chat')}>
+          <Feather name="message-square" size={24} color={theme.subtext} />
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.navBtn}>
+          {/* Coloquei a bolinha dourada aqui pra indicar que a gente tá no Perfil */}
+          <View style={[styles.activeDot, { backgroundColor: theme.gold }]} />
+          <Feather name="user" size={24} color={theme.gold} />
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
+  container: { flex: 1 },
   header: { 
     flexDirection: 'row', 
     justifyContent: 'space-between', 
-    alignItems: 'center', 
     padding: 20, 
-    backgroundColor: '#FFF', 
-    borderBottomWidth: 1, 
-    borderBottomColor: '#EEE' 
-  },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  
-  content: { padding: 20 },
-  
-  profileHeader: { alignItems: 'center', marginBottom: 30, marginTop: 10 },
-  avatarContainer: { position: 'relative', marginBottom: 15 },
-  avatarPlaceholder: { 
-    width: 100, 
-    height: 100, 
-    borderRadius: 50, 
-    justifyContent: 'center', 
+    paddingTop: Platform.OS === 'ios' ? 10 : 25,
     alignItems: 'center',
+    borderBottomWidth: 1 
+  },
+  backBtn: { padding: 8 },
+  title: { fontSize: 19, fontWeight: 'bold' },
+  
+  profileBox: { alignItems: 'center', paddingVertical: 25 },
+  avatar: { width: 90, height: 90, borderRadius: 45, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  avatarTxt: { fontSize: 36, fontWeight: '900', color: '#1A253A' },
+  name: { fontSize: 22, fontWeight: 'bold' },
+  editBadge: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
+  
+  section: { paddingHorizontal: 20, marginTop: 25 },
+  sectionTitle: { fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 10, marginLeft: 10 },
+  card: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
+  item: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
+  itemLeft: { flexDirection: 'row', alignItems: 'center' },
+  iconBox: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  label: { fontSize: 16, fontWeight: '600' },
+  divider: { height: 1, marginLeft: 65, marginRight: 15 },
+  
+  nav: { 
+    position: 'absolute', 
+    bottom: 20, 
+    left: 20, 
+    right: 20, 
+    flexDirection: 'row', 
+    justifyContent: 'space-around', 
+    padding: 15, 
+    borderRadius: 25, 
+    borderWidth: 1, 
+    elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4
+    shadowOpacity: 0.2,
+    shadowRadius: 5
   },
-  avatarText: { fontSize: 36, fontWeight: 'bold', color: '#FFF' },
-  editAvatarBtn: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#005b44',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#F4F7F6'
-  },
-  userName: { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 4 },
-  userRoleBadge: { 
-    fontSize: 12, 
-    fontWeight: '600', 
-    color: '#38b29c', 
-    backgroundColor: 'rgba(56, 178, 156, 0.1)', 
-    paddingHorizontal: 12, 
-    paddingVertical: 4, 
-    borderRadius: 12 
-  },
-
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 10, marginLeft: 4 },
-  card: { 
-    backgroundColor: '#FFF', 
-    borderRadius: 16, 
-    padding: 16, 
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 5,
-    elevation: 2
-  },
-  
-  infoRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
-  infoIconBox: { 
-    width: 40, 
-    height: 40, 
-    borderRadius: 20, 
-    backgroundColor: 'rgba(56, 178, 156, 0.1)', 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    marginRight: 15
-  },
-  infoTextContainer: { flex: 1 },
-  infoLabel: { fontSize: 12, color: '#888', marginBottom: 2 },
-  infoValue: { fontSize: 15, fontWeight: '500', color: '#333' },
-  
-  divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 8 },
-  
-  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
-  settingLeft: { flexDirection: 'row', alignItems: 'center' },
-  settingText: { fontSize: 16, fontWeight: '500', color: '#333', marginLeft: 15 },
-  
-  logoutBtn: { 
-    flexDirection: 'row', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    backgroundColor: '#FFF', 
-    padding: 16, 
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#DC3545',
-    marginBottom: 20
-  },
-  logoutText: { fontSize: 16, fontWeight: 'bold', marginLeft: 10 }
+  navBtn: { padding: 5, alignItems: 'center', justifyContent: 'center' },
+  activeDot: { position: 'absolute', top: -10, width: 4, height: 4, borderRadius: 2 }
 });
