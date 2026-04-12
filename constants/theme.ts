@@ -3,39 +3,42 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
-import { Platform } from 'react-native';
-
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+import { Platform, StatusBarStyle } from 'react-native';
 
 export const Colors = {
-  light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-  },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
+    gold: '#F5A623',
+    bg: '#121A2F',
+    card: '#233248',
+    text: '#FFFFFF',
+    textMain: '#FFFFFF',
+    textLight: '#94A3B8',
+    subtext: '#94A3B8',
+    border: '#37474F',
+    status: 'light-content' as StatusBarStyle,
+    inputBg: '#121A2F',
+    darkBlue: '#1A253A',
   },
+  light: {
+    gold: '#F5A623',
+    bg: '#F8FAFC',
+    card: '#FFFFFF',
+    text: '#0F172A',
+    textMain: '#0F172A',
+    textLight: '#64748B',
+    subtext: '#64748B',
+    border: '#E2E8F0',
+    status: 'dark-content' as StatusBarStyle,
+    inputBg: '#F1F5F9',
+    darkBlue: '#1A253A',
+  }
 };
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {

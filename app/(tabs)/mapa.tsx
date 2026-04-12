@@ -12,7 +12,7 @@ import { Stack, useRouter } from 'expo-router';
 
 // Puxando o nosso contexto certinho pra pegar as cores e saber quem tá logado
 // Isso resolve aquele erro chato que dava quando o arquivo chamava useTheme
-import { useApp } from './_layout';
+import { useApp } from '../_layout';
 
 export default function Mapa() {
   const router = useRouter();

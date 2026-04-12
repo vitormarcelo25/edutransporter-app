@@ -15,7 +15,7 @@ import { useRouter, Stack } from 'expo-router';
 // Voltamos pra importação direta e limpa! 
 // Isso resolve o erro de "useApp não é uma função" no seu VS Code.
 // Se o visualizador web daqui reclamar de "Could not resolve", pode ignorar que no Expo Go vai rodar perfeito.
-import { useApp } from './_layout';
+import { useApp } from '../_layout';
 
 export default function Perfil() {
   const router = useRouter();

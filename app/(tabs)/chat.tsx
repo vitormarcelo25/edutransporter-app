@@ -16,7 +16,7 @@ import { Stack, useRouter } from 'expo-router';
 
 // Voltamos pra importação direta e limpa igual a gente fez nas outras telas!
 // O preview da web pode reclamar, mas no teu VS Code e no celular vai rodar liso.
-import { useApp } from './_layout';
+import { useApp } from '../_layout';
 
 // Molde de como cada mensagem tem de ser guardada
 interface Message {
