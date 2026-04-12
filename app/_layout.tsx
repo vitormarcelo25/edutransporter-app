@@ -3,6 +3,8 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar, View } from 'react-native';
 import { AppProvider, useApp } from '../contexts/AppContext';
 
+export { useApp };
+
 function RootLayoutNav() {
   const { theme, isDark } = useApp();
 
