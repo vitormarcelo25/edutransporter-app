@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Gerar Convites - Cria códigos para novos admins
  * Cada convite expira em 24h

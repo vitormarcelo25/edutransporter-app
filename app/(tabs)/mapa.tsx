@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Mapa - Visualização de rota em tempo real
  * Mapa simulado com marcadores (escola, onibus, paradas)

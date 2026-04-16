@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  *
  * Central de Ajuda - FAQ por categorias
  * Perguntas baseadas nas dúvidas reais dos usuários do app

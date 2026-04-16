@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Hook de Geofencing - Detecta proximidade de paradas
  * Fórmula de Haversine para calcular distância GPS

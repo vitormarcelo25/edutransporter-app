@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Tela de Login Admin - Acesso restrito
  * Chave de acesso: admin26 (hardcoded por enquanto)

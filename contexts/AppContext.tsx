@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  *
  * AppContext - Estado global da aplicação
  * Gerencia: tema (dark/light), role do usuário, assento selecionado, auth

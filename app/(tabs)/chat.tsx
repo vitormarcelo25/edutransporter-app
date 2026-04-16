@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Chat - Mensagens em grupo da rota
  * Lista de mensagens com bubbles (enviado/recebido)

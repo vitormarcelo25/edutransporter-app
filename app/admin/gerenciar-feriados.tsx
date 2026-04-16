@@ -1,7 +1,7 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
- * 
+ * v10.1.0 - Beta Release
+ * EduTransporter
+ *
  * Gerenciar Feriados - Dias sem transporte
  * Lista de feriados com excluir
  * Apenas admin acessa

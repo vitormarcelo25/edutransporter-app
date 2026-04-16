@@ -1,7 +1,7 @@
 
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Tela de Login - Ponto de entrada do app
  * Toggle para escolher entre Aluno ou Motorista
@@ -187,7 +187,7 @@ export default function Login() {
               </TouchableOpacity>
 
               <View style={{ height: 20 }} />
-              <Text style={styles.versionText}>v 1.0.0</Text>
+              <Text style={styles.versionText}>v 10.1.0</Text>
               <View style={{ height: 20 }} />
                
             </ScrollView>

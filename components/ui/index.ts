@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * UI Components - Biblioteca de componentes reutilizáveis
  * Exporta: LoadingSpinner, EmptyState, AnimatedButton, CustomInput

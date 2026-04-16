@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Gerenciar Avisos - Lista de avisos do sistema
  * Tipos: urgente, sucesso, info

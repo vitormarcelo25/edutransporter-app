@@ -1,6 +1,6 @@
 /**
- * v1.0 - O Retorno
- * Vitor Santana no código
+ * v10.1.0 - Beta Release
+ * EduTransporter
  * 
  * Agenda de Rotas - Visualização semanal
  * Selector de dias (14 dias) com scroll horizontal
