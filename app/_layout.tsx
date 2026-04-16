@@ -1,21 +1,39 @@
 import React, { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar, View } from 'react-native';
 import { AppProvider, useApp } from '../contexts/AppContext';
+import { ToastProvider } from '../contexts/ToastContext';
+import { useNotifications } from '../hooks/useNotifications';
 
 export { useApp };
 
+function NotificationsSetup() {
+  useNotifications();
+  return null;
+}
+
 function RootLayoutNav() {
-  const { theme, isDark } = useApp();
+  const { theme, isDark, isLoadingAuth } = useApp();
+  const router = useRouter();
+
+  if (isLoadingAuth) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#1A253A', justifyContent: 'center', alignItems: 'center' }}>
+        <StatusBar barStyle="light-content" backgroundColor="#1A253A" />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar 
-        barStyle={theme.status} 
-        backgroundColor={isDark ? '#1A253A' : '#F8FAFC'} 
+      <StatusBar
+        barStyle={theme.status}
+        backgroundColor={isDark ? '#1A253A' : '#F8FAFC'}
       />
-      
-      <Stack screenOptions={{ 
+
+      <NotificationsSetup />
+
+      <Stack screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: theme.bg }
       }}>
@@ -27,6 +45,10 @@ function RootLayoutNav() {
         <Stack.Screen name="avisos" />
         <Stack.Screen name="ajuda" />
         <Stack.Screen name="listas" />
+
+        {/* Admin */}
+        <Stack.Screen name="admin" />
+        <Stack.Screen name="admin-login" />
       </Stack>
     </View>
   );
@@ -35,7 +57,9 @@ function RootLayoutNav() {
 export default function App() {
   return (
     <AppProvider>
-      <RootLayoutNav />
+      <ToastProvider>
+        <RootLayoutNav />
+      </ToastProvider>
     </AppProvider>
   );
 }

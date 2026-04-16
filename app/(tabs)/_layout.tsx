@@ -1,7 +1,6 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Platform } from 'react-native';
-// Ícones que a gente já usa no projeto
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../_layout';
 
@@ -14,34 +13,26 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: theme.gold,
         tabBarInactiveTintColor: theme.subtext,
-        // Estilizando a barra de abas pra ficar com a nossa cara
         tabBarStyle: {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
           borderTopWidth: 1,
-          paddingVertical: 10,
+          paddingVertical: 8,
           paddingBottom: Platform.OS === 'ios' ? 25 : 15,
-          height: Platform.OS === 'ios' ? 80 : 65,
+          height: Platform.OS === 'ios' ? 85 : 70,
           elevation: 10,
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0
         },
         tabBarLabelStyle: {
           fontSize: 10,
-          marginTop: 2,
+          marginTop: 5,
         },
       }}
     >
-      {/* Aqui a gente define cada aba. O 'name' tem que bater com o nome do arquivo tsx */}
       <Tabs.Screen
         name="home"
         options={{
           title: 'Início',
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="home" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Feather name="home" size={size + 2} color={color} />,
         }}
       />
       
@@ -49,9 +40,15 @@ export default function TabsLayout() {
         name="mapa"
         options={{
           title: 'Mapa',
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="map" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Feather name="map-pin" size={size + 2} color={color} />,
+        }}
+      />
+      
+      <Tabs.Screen
+        name="calendario"
+        options={{
+          title: 'Agenda',
+          tabBarIcon: ({ color, size }) => <Feather name="calendar" size={size + 2} color={color} />,
         }}
       />
       
@@ -59,9 +56,7 @@ export default function TabsLayout() {
         name="chat"
         options={{
           title: 'Chat',
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="message-square" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Feather name="message-circle" size={size + 2} color={color} />,
         }}
       />
       
@@ -69,10 +64,18 @@ export default function TabsLayout() {
         name="perfil"
         options={{
           title: 'Perfil',
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="user" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Feather name="settings" size={size + 2} color={color} />,
         }}
+      />
+
+      <Tabs.Screen
+        name="presenca"
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
+        name="iniciar-rota"
+        options={{ href: null }}
       />
     </Tabs>
   );

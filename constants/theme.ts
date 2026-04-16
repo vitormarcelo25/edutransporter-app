@@ -7,7 +7,7 @@ import { Platform, StatusBarStyle } from 'react-native';
 
 export const Colors = {
   dark: {
-    gold: '#F5A623',
+    gold: '#FFB347',
     bg: '#121A2F',
     card: '#233248',
     text: '#FFFFFF',
@@ -17,7 +17,7 @@ export const Colors = {
     border: '#37474F',
     status: 'light-content' as StatusBarStyle,
     inputBg: '#121A2F',
-    darkBlue: '#1A253A',
+    darkBlue: '#3D5A80',
   },
   light: {
     gold: '#F5A623',

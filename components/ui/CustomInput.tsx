@@ -7,9 +7,11 @@ import { useApp } from '../../contexts/AppContext';
 interface CustomInputProps extends TextInputProps {
   iconName: React.ComponentProps<typeof Feather>['name'];
   isPassword?: boolean;
+  value?: string;
+  onChangeText?: (text: string) => void;
 }
 
-export function CustomInput({ iconName, isPassword = false, ...rest }: CustomInputProps) {
+export function CustomInput({ iconName, isPassword = false, value, onChangeText, ...rest }: CustomInputProps) {
   const { theme } = useApp();
   const [showPassword, setShowPassword] = useState(!isPassword);
 
@@ -17,11 +19,12 @@ export function CustomInput({ iconName, isPassword = false, ...rest }: CustomInp
     <View style={[styles.inputWrapper, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
       <Feather name={iconName} size={20} color={theme.textLight} style={styles.inputIcon} />
       
-      {/* O secureTextEntry inverte o estado do showPassword. Mente de titânio! */}
       <TextInput 
         style={[styles.inputWithIcon, { color: theme.textMain }]} 
         placeholderTextColor={theme.textLight}
-        secureTextEntry={!showPassword}
+        secureTextEntry={isPassword && !showPassword}
+        value={value}
+        onChangeText={onChangeText}
         {...rest}
       />
       

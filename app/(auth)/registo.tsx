@@ -1,21 +1,44 @@
+/**
+ * v1.0 - O Retorno
+ * Vitor Santana no código
+ * 
+ * Tela de Registo - Criação de conta
+ * Toggle para Aluno ou Motorista
+ * Campos mudam dinamicamente conforme o role escolhido
+ */
+
 import React, { useState } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
   ScrollView, StatusBar, SafeAreaView 
 } from 'react-native';
-// Importando os ícones e o gradiente pra deixar o visual mais caprichado
 import { FontAwesome5, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
+import { register, RegisterResponse } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 
 // Criando esse tipo aqui pra garantir que a gente não escreva errado depois
 type Role = 'motorista' | 'aluno';
 
 export default function Registo() {
   const router = useRouter();
-  
-  // O app já começa assumindo que quem tá criando conta é aluno
+  const { addToast } = useToast();
+   
   const [role, setRole] = useState<Role>('aluno');
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    nome: '',
+    email: '',
+    telefone: '',
+    cidade: '',
+    escola: '',
+    matriculaEscolar: '',
+    matriculaVeiculo: '',
+    cartaConducao: '',
+    password: '',
+    confirmPassword: '',
+  });
 
   // Cores da nossa identidade visual. Deixei "chumbado" aqui por enquanto 
   // pra facilitar na hora de montar a tela, depois a gente passa pro global se precisar
@@ -29,11 +52,44 @@ export default function Registo() {
     textLight: '#94A3B8',  
   };
 
-  // Função fake por enquanto. Quando tiver backend a gente faz a validação certa
-  // Por hora só pula pra home pra gente testar o fluxo das telas
-  const handleRegisto = () => {
-    router.replace('/home'); 
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
+
+   // Função fake por enquanto. Quando tiver backend a gente faz a validação certa
+   // Por hora só pula pra home pra gente testar o fluxo das telas
+   const handleRegisto = async () => {
+     if (formData.password !== formData.confirmPassword) {
+       addToast('error', 'As senhas não coincidem');
+       return;
+     }
+
+     setLoading(true);
+
+     const data = {
+       nome: formData.nome,
+       email: formData.email,
+       telefone: formData.telefone,
+       cidade: formData.cidade,
+       role: role,
+       escola: formData.escola,
+       matriculaEscolar: formData.matriculaEscolar,
+       matriculaVeiculo: formData.matriculaVeiculo,
+       cartaConducao: formData.cartaConducao,
+       password: formData.password,
+     };
+
+     const result: RegisterResponse = await register(data);
+
+     setLoading(false);
+
+     if (result.success) {
+       addToast('success', 'Conta criada com sucesso!');
+       router.replace('/(tabs)/home');
+     } else {
+       addToast('error', result.message || 'Erro ao criar conta');
+     }
+   };
 
   return (
     <>
@@ -97,33 +153,104 @@ export default function Registo() {
               {/* Linha separadora pra dar um respiro no visual */}
               <View style={styles.divider} />
 
-              <TextInput style={styles.inputSimple} placeholder="Nome Completo" placeholderTextColor={theme.textLight} />
-              <TextInput style={styles.inputSimple} placeholder="E-mail" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={theme.textLight} />
-              <TextInput style={styles.inputSimple} placeholder="Número de Telemóvel" keyboardType="phone-pad" placeholderTextColor={theme.textLight} />
-              <TextInput style={styles.inputSimple} placeholder="Cidade" placeholderTextColor={theme.textLight} />
+              <TextInput 
+                style={styles.inputSimple} 
+                placeholder="Nome Completo" 
+                placeholderTextColor={theme.textLight}
+                value={formData.nome}
+                onChangeText={(v) => handleInputChange('nome', v)}
+              />
+              <TextInput 
+                style={styles.inputSimple} 
+                placeholder="E-mail" 
+                keyboardType="email-address" 
+                autoCapitalize="none" 
+                placeholderTextColor={theme.textLight}
+                value={formData.email}
+                onChangeText={(v) => handleInputChange('email', v)}
+              />
+              <TextInput 
+                style={styles.inputSimple} 
+                placeholder="Número de Telemóvel" 
+                keyboardType="phone-pad" 
+                placeholderTextColor={theme.textLight}
+                value={formData.telefone}
+                onChangeText={(v) => handleInputChange('telefone', v)}
+              />
+              <TextInput 
+                style={styles.inputSimple} 
+                placeholder="Cidade" 
+                placeholderTextColor={theme.textLight}
+                value={formData.cidade}
+                onChangeText={(v) => handleInputChange('cidade', v)}
+              />
 
               {/* Aqui é a mágica: muda os campos de acordo com a aba que a pessoa escolheu lá em cima */}
               {role === 'aluno' ? (
                 <>
-                  <TextInput style={styles.inputSimple} placeholder="Nome da Escola / Instituição" placeholderTextColor={theme.textLight} />
-                  <TextInput style={styles.inputSimple} placeholder="Número de Matrícula (Opcional)" placeholderTextColor={theme.textLight} />
+                  <TextInput 
+                    style={styles.inputSimple} 
+                    placeholder="Nome da Escola / Instituição" 
+                    placeholderTextColor={theme.textLight}
+                    value={formData.escola}
+                    onChangeText={(v) => handleInputChange('escola', v)}
+                  />
+                  <TextInput 
+                    style={styles.inputSimple} 
+                    placeholder="Número de Matrícula (Opcional)" 
+                    placeholderTextColor={theme.textLight}
+                    value={formData.matriculaEscolar}
+                    onChangeText={(v) => handleInputChange('matriculaEscolar', v)}
+                  />
                 </>
               ) : (
                 <>
-                  <TextInput style={styles.inputSimple} placeholder="Matrícula do Veículo (Placa)" placeholderTextColor={theme.textLight} />
-                  <TextInput style={styles.inputSimple} placeholder="Número da Carta de Condução" placeholderTextColor={theme.textLight} />
+                  <TextInput 
+                    style={styles.inputSimple} 
+                    placeholder="Matrícula do Veículo (Placa)" 
+                    placeholderTextColor={theme.textLight}
+                    value={formData.matriculaVeiculo}
+                    onChangeText={(v) => handleInputChange('matriculaVeiculo', v)}
+                  />
+                  <TextInput 
+                    style={styles.inputSimple} 
+                    placeholder="Número da Carta de Condução" 
+                    placeholderTextColor={theme.textLight}
+                    value={formData.cartaConducao}
+                    onChangeText={(v) => handleInputChange('cartaConducao', v)}
+                  />
                 </>
               )}
 
-              <TextInput style={styles.inputSimple} placeholder="Criar uma Senha" secureTextEntry placeholderTextColor={theme.textLight} />
-              <TextInput style={styles.inputSimple} placeholder="Confirmar Senha" secureTextEntry placeholderTextColor={theme.textLight} />
+              <TextInput 
+                style={styles.inputSimple} 
+                placeholder="Criar uma Senha" 
+                secureTextEntry 
+                placeholderTextColor={theme.textLight}
+                value={formData.password}
+                onChangeText={(v) => handleInputChange('password', v)}
+              />
+              <TextInput 
+                style={styles.inputSimple} 
+                placeholder="Confirmar Senha" 
+                secureTextEntry 
+                placeholderTextColor={theme.textLight}
+                value={formData.confirmPassword}
+                onChangeText={(v) => handleInputChange('confirmPassword', v)}
+              />
 
               <Text style={styles.termsText}>
                 Ao clicar em "Registar", você concorda com os nossos <Text style={{fontWeight: 'bold', color: theme.gold}}>Termos de Uso</Text> e <Text style={{fontWeight: 'bold', color: theme.gold}}>Política de Privacidade</Text>.
               </Text>
 
-              <TouchableOpacity style={styles.btnRegistar} onPress={handleRegisto}>
-                <Text style={styles.btnRegistarText}>Concluir Registo</Text>
+              <TouchableOpacity 
+                style={[styles.btnRegistar, loading && styles.btnDisabled]} 
+                onPress={handleRegisto}
+                disabled={loading}
+              >
+                <Text style={styles.btnRegistarText}>
+                  {loading ? 'A criar conta...' : 'Concluir Registo'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -168,6 +295,7 @@ const styles = StyleSheet.create({
 
   btnRegistar: { height: 54, backgroundColor: '#F5A623', borderRadius: 27, justifyContent: 'center', alignItems: 'center', width: '100%', shadowColor: '#F5A623', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
   btnRegistarText: { color: '#1A253A', fontSize: 18, fontWeight: 'bold' },
+  btnDisabled: { opacity: 0.6 },
   
   footerLinks: { alignItems: 'center', width: '100%', marginTop: 10 },
   loginLinkBtn: { padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 25, width: '100%', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },

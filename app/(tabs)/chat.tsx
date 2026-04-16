@@ -1,24 +1,27 @@
+/**
+ * v1.0 - O Retorno
+ * Vitor Santana no código
+ * 
+ * Chat - Mensagens em grupo da rota
+ * Lista de mensagens com bubbles (enviado/recebido)
+ * Input com botão de enviar
+ */
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, 
   Text, 
   View, 
   TouchableOpacity, 
-  SafeAreaView, 
   FlatList, 
   TextInput, 
-  KeyboardAvoidingView, 
   Platform,
-  StatusBar
+  StatusBar,
+  KeyboardAvoidingView
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 
-// Voltamos pra importação direta e limpa igual a gente fez nas outras telas!
-// O preview da web pode reclamar, mas no teu VS Code e no celular vai rodar liso.
-import { useApp } from '../_layout';
-
-// Molde de como cada mensagem tem de ser guardada
 interface Message {
   id: string;
   text: string;
@@ -30,10 +33,6 @@ interface Message {
 export default function Chat() {
   const router = useRouter();
   
-  // Pegando o tema direto do nosso contexto, sem gambiarras de fallback
-  const { theme, isDark } = useApp();
-  
-  // Mensagens falsas só pra tela não ficar vazia quando a gente for apresentar pro prof
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', text: 'Bom dia! O autocarro já saiu da garagem.', sender: 'Carlos (Motorista)', isMe: false, time: '07:00' },
     { id: '2', text: 'Ótimo, obrigado pelo aviso!', sender: 'Eu', isMe: true, time: '07:05' },
@@ -43,9 +42,7 @@ export default function Chat() {
   const [inputMessage, setInputMessage] = useState('');
   const flatListRef = useRef<FlatList>(null);
 
-  // Função simples pra jogar a mensagem na tela
   const sendMessage = () => {
-    // Se a pessoa só mandou espaço em branco, a gente ignora
     if (inputMessage.trim() === '') return;
 
     const newMessage: Message = {
@@ -57,37 +54,27 @@ export default function Chat() {
     };
 
     setMessages([...messages, newMessage]);
-    setInputMessage(''); // Limpa a caixa de texto depois de enviar
+    setInputMessage('');
   };
 
-  // Esse negocinho aqui garante que o chat rola pra última mensagem automaticamente
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100); // 100ms de delay pro React ter tempo de renderizar a lista
+      }, 100);
     }
   }, [messages]);
 
-  // Função que desenha o balãozinho de cada mensagem
   const renderMessage = ({ item }: { item: Message }) => (
     <View style={[styles.messageWrapper, item.isMe ? styles.wrapperMe : styles.wrapperOther]}>
-      {/* Só mostra o nome se não for eu a mandar */}
       {!item.isMe && (
-        <Text style={[styles.senderName, { color: theme.gold }]}>{item.sender}</Text>
+        <Text style={styles.senderName}>{item.sender}</Text>
       )}
-      <View 
-        style={[
-          styles.bubble, 
-          item.isMe 
-            ? { backgroundColor: theme.gold, borderBottomRightRadius: 4 } 
-            : { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1, borderBottomLeftRadius: 4 }
-        ]}
-      >
-        <Text style={[styles.messageText, { color: item.isMe ? '#1A253A' : theme.text }]}>
+      <View style={[styles.bubble, item.isMe ? styles.bubbleMe : styles.bubbleOther]}>
+        <Text style={[styles.messageText, item.isMe ? styles.textMe : styles.textOther]}>
           {item.text}
         </Text>
-        <Text style={[styles.time, { color: item.isMe ? 'rgba(26, 37, 58, 0.6)' : theme.subtext }]}>
+        <Text style={[styles.time, item.isMe ? styles.timeMe : styles.timeOther]}>
           {item.time}
         </Text>
       </View>
@@ -95,31 +82,26 @@ export default function Chat() {
   );
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      {/* Escondendo o header nativo do Expo */}
-      <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar barStyle={theme.status as any} />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#1A253A" />
 
-      {/* Cabeçalho do Chat com botão de voltar */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+      <View style={styles.header}>
         <TouchableOpacity onPress={() => router.replace('/home')} style={styles.backBtn}>
-          <Feather name="arrow-left" size={24} color={theme.text} />
+          <Feather name="arrow-left" size={24} color="#FFF" />
         </TouchableOpacity>
         <View style={styles.headerInfo}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Grupo ORE 3</Text>
-          <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>Ativo agora</Text>
+          <Text style={styles.headerTitle}>Grupo ORE 3</Text>
+          <Text style={styles.headerSubtitle}>Ativo agora</Text>
         </View>
         <TouchableOpacity style={styles.infoBtn}>
-          <Ionicons name="information-circle-outline" size={24} color={theme.text} />
+          <Ionicons name="information-circle-outline" size={24} color="#FFF" />
         </TouchableOpacity>
       </View>
 
-      {/* O KeyboardAvoidingView tava bugando, então coloquei um offset no teclado.
-          Basicamente isso calcula a altura do header + barra de status pra empurrar o input do jeito certo */}
       <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 70}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        style={styles.keyboardView}
       >
         <FlatList
           ref={flatListRef}
@@ -128,52 +110,58 @@ export default function Chat() {
           renderItem={renderMessage}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled" /* Deixa clicar na tela pra fechar o teclado se precisar */
+          keyboardShouldPersistTaps="handled"
         />
 
-        {/* Campo de digitar a mensagem */}
-        <View style={[styles.inputContainer, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
-          <TextInput
-            style={[styles.input, { backgroundColor: theme.inputBg || '#121A2F', color: theme.text, borderColor: theme.border }]}
-            placeholder="Escreve uma mensagem..."
-            placeholderTextColor={theme.subtext}
-            value={inputMessage}
-            onChangeText={setInputMessage}
-            multiline
-          />
-          <TouchableOpacity 
-            style={[styles.sendBtn, { backgroundColor: inputMessage.trim() ? theme.gold : theme.border }]} 
-            onPress={sendMessage}
-            disabled={!inputMessage.trim()} // Desativa o botão se não tiver texto
-          >
-            <Ionicons name="send" size={18} color={inputMessage.trim() ? '#1A253A' : theme.subtext} />
-          </TouchableOpacity>
+        <View style={styles.inputWrapper}>
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="Escreve uma mensagem..."
+              placeholderTextColor="#94A3B8"
+              value={inputMessage}
+              onChangeText={setInputMessage}
+            />
+            <TouchableOpacity 
+              style={[styles.sendBtn, inputMessage.trim() ? styles.sendBtnActive : styles.sendBtnDisabled]} 
+              onPress={sendMessage}
+              disabled={!inputMessage.trim()}
+            >
+              <Ionicons name="send" size={18} color={inputMessage.trim() ? '#1A253A' : '#94A3B8'} />
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
-
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
+  container: {
+    flex: 1,
+    backgroundColor: '#1A253A',
+  },
+  keyboardView: {
+    flex: 1,
+  },
   header: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     padding: 16, 
     borderBottomWidth: 1,
-    // Ajustezinho de padding pro header ficar bom no iOS também
-    paddingTop: Platform.OS === 'ios' ? 10 : 16,
+    borderBottomColor: '#37474F',
+    backgroundColor: '#1A253A',
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
   backBtn: { padding: 4 },
   headerInfo: { flex: 1, marginLeft: 12 },
-  headerTitle: { fontSize: 16, fontWeight: 'bold' },
-  headerSubtitle: { fontSize: 12, marginTop: 2 },
+  headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#FFF' },
+  headerSubtitle: { fontSize: 12, marginTop: 2, color: '#94A3B8' },
   infoBtn: { padding: 4 },
   
   listContent: { 
-    padding: 16, 
-    paddingBottom: 24 
+    padding: 16,
+    paddingBottom: 100,
   },
   messageWrapper: { 
     marginBottom: 16, 
@@ -186,44 +174,55 @@ const styles = StyleSheet.create({
     fontSize: 11, 
     fontWeight: 'bold', 
     marginBottom: 4, 
-    marginLeft: 4 
+    marginLeft: 4,
+    color: '#F5A623'
   },
   bubble: { 
     padding: 12, 
     borderRadius: 16 
   },
-  messageText: { 
-    fontSize: 14, 
-    lineHeight: 20 
-  },
-  time: { 
-    fontSize: 10, 
-    alignSelf: 'flex-end', 
-    marginTop: 4 
-  },
+  bubbleMe: { backgroundColor: '#F5A623', borderBottomRightRadius: 4 },
+  bubbleOther: { backgroundColor: '#233248', borderWidth: 1, borderColor: '#37474F', borderBottomLeftRadius: 4 },
   
+  messageText: { fontSize: 14, lineHeight: 20 },
+  textMe: { color: '#1A253A' },
+  textOther: { color: '#FFF' },
+  
+  time: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
+  timeMe: { color: 'rgba(26, 37, 58, 0.6)' },
+  timeOther: { color: '#94A3B8' },
+  
+  inputWrapper: {
+    backgroundColor: '#233248',
+    borderTopWidth: 1,
+    borderTopColor: '#37474F',
+  },
   inputContainer: { 
     flexDirection: 'row', 
-    alignItems: 'flex-end', 
-    padding: 12, 
-    borderTopWidth: 1 
+    alignItems: 'center', 
+    paddingHorizontal: 16, 
+    paddingVertical: 12,
+    paddingBottom: Platform.OS === 'ios' ? 35 : 20,
   },
   input: { 
     flex: 1, 
-    minHeight: 40, 
-    maxHeight: 100, 
-    borderRadius: 20, 
-    paddingHorizontal: 16, 
-    paddingVertical: 8, 
-    fontSize: 14, 
-    borderWidth: 1 
+    height: 48,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    fontSize: 14,
+    backgroundColor: '#1A253A',
+    color: '#FFF',
+    borderWidth: 1,
+    borderColor: '#37474F',
   },
   sendBtn: { 
-    width: 44, 
-    height: 44, 
-    borderRadius: 22, 
+    width: 48, 
+    height: 48, 
+    borderRadius: 24, 
     justifyContent: 'center', 
     alignItems: 'center', 
-    marginLeft: 12 
-  }
+    marginLeft: 12
+  },
+  sendBtnActive: { backgroundColor: '#F5A623' },
+  sendBtnDisabled: { backgroundColor: '#37474F' }
 });

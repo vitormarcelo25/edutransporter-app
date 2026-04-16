@@ -1,3 +1,13 @@
+/**
+ * v1.0 - O Retorno
+ * Vitor Santana no código
+ * 
+ * Perfil - Configurações do usuário
+ * Dados pessoais, notificações, segurança
+ * Toggle para Dark Mode
+ * Botão de logout
+ */
+
 import React from 'react';
 import { 
   StyleSheet, 
@@ -11,30 +21,22 @@ import {
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
-
-// Voltamos pra importação direta e limpa! 
-// Isso resolve o erro de "useApp não é uma função" no seu VS Code.
-// Se o visualizador web daqui reclamar de "Could not resolve", pode ignorar que no Expo Go vai rodar perfeito.
 import { useApp } from '../_layout';
 
 export default function Perfil() {
   const router = useRouter();
   
   // Pegando tudo o que a gente precisa direto do nosso contexto
-  const { isDark, toggleTheme, theme, userRole } = useApp();
+  const { isDark, toggleTheme, theme, userRole, clearAuth } = useApp();
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       {/* Escondendo a barra nativa do Expo pra ficar um design mais limpo */}
       <Stack.Screen options={{ headerShown: false }} />
       
-      {/* Cabeçalho padrão com botão de voltar */}
+      {/* Cabeçalho padrão */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => router.replace('/home')} style={styles.backBtn}>
-          <Feather name="arrow-left" size={24} color={theme.text} />
-        </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Meu Perfil</Text>
-        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -64,7 +66,7 @@ export default function Perfil() {
           <Text style={[styles.sectionTitle, { color: theme.subtext }]}>Conta & Privacidade</Text>
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             
-            <TouchableOpacity style={styles.item}>
+            <TouchableOpacity style={styles.item} onPress={() => router.push('/dados-pessoais')}>
               <View style={styles.itemLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(49,130,206,0.1)' }]}>
                   <Feather name="user" size={18} color="#3182CE" />
@@ -76,7 +78,7 @@ export default function Perfil() {
             
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-            <TouchableOpacity style={styles.item}>
+            <TouchableOpacity style={styles.item} onPress={() => router.push('/notificacoes')}>
               <View style={styles.itemLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(72,187,120,0.1)' }]}>
                   <Feather name="bell" size={18} color="#48BB78" />
@@ -88,7 +90,7 @@ export default function Perfil() {
             
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-            <TouchableOpacity style={styles.item}>
+            <TouchableOpacity style={styles.item} onPress={() => router.push('/seguranca')}>
               <View style={styles.itemLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(159,122,234,0.1)' }]}>
                   <Feather name="shield" size={18} color="#9F7AEA" />
@@ -141,7 +143,7 @@ export default function Perfil() {
             
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-            <TouchableOpacity style={styles.item}>
+            <TouchableOpacity style={styles.item} onPress={() => router.push('/termos')}>
               <View style={styles.itemLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(160,174,192,0.1)' }]}>
                   <Feather name="info" size={18} color={theme.subtext} />
@@ -158,7 +160,7 @@ export default function Perfil() {
         <View style={styles.section}>
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             {/* Botão de logout voltando pra tela de login */}
-            <TouchableOpacity style={styles.item} onPress={() => router.replace('/')}>
+            <TouchableOpacity style={styles.item} onPress={() => { clearAuth(); router.replace('/'); }}>
               <View style={styles.itemLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
                   <Feather name="log-out" size={18} color="#EF4444" />
@@ -172,27 +174,6 @@ export default function Perfil() {
         {/* Espaço extra no final pro scroll não ficar cortado pelo menu de baixo */}
         <View style={{ height: 120 }} />
       </ScrollView>
-
-      {/* Navegação Inferior (Navbar Flutuante) igual a das outras telas */}
-      <View style={[styles.nav, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <TouchableOpacity style={styles.navBtn} onPress={() => router.replace('/home')}>
-          <Feather name="home" size={24} color={theme.subtext} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navBtn} onPress={() => router.replace('/mapa')}>
-          <Feather name="map-pin" size={24} color={theme.subtext} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navBtn} onPress={() => router.replace('/chat')}>
-          <Feather name="message-square" size={24} color={theme.subtext} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navBtn}>
-          {/* Coloquei a bolinha dourada aqui pra indicar que a gente tá no Perfil */}
-          <View style={[styles.activeDot, { backgroundColor: theme.gold }]} />
-          <Feather name="user" size={24} color={theme.gold} />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -207,7 +188,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderBottomWidth: 1 
   },
-  backBtn: { padding: 8 },
   title: { fontSize: 19, fontWeight: 'bold' },
   
   profileBox: { alignItems: 'center', paddingVertical: 25 },
@@ -223,24 +203,5 @@ const styles = StyleSheet.create({
   itemLeft: { flexDirection: 'row', alignItems: 'center' },
   iconBox: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   label: { fontSize: 16, fontWeight: '600' },
-  divider: { height: 1, marginLeft: 65, marginRight: 15 },
-  
-  nav: { 
-    position: 'absolute', 
-    bottom: 20, 
-    left: 20, 
-    right: 20, 
-    flexDirection: 'row', 
-    justifyContent: 'space-around', 
-    padding: 15, 
-    borderRadius: 25, 
-    borderWidth: 1, 
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5
-  },
-  navBtn: { padding: 5, alignItems: 'center', justifyContent: 'center' },
-  activeDot: { position: 'absolute', top: -10, width: 4, height: 4, borderRadius: 2 }
+  divider: { height: 1, marginLeft: 65, marginRight: 15 }
 });
