@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
-import { StatusBar, View } from 'react-native';
+import { StatusBar, View, Platform } from 'react-native';
 import { AppProvider, useApp } from '../contexts/AppContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { useNotifications } from '../hooks/useNotifications';
+import SplashScreen from '../components/SplashScreen';
 
 export { useApp };
 
@@ -15,6 +16,25 @@ function NotificationsSetup() {
 function RootLayoutNav() {
   const { theme, isDark, isLoadingAuth } = useApp();
   const router = useRouter();
+  const [splashFinished, setSplashFinished] = useState(false);
+  const isMobile = Platform.OS !== 'web';
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const timer = setTimeout(() => {
+      setSplashFinished(true);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [isMobile]);
+
+  if (isMobile && !splashFinished) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#1A2436' }}>
+        <StatusBar barStyle="light-content" backgroundColor="#1A2436" />
+        <SplashScreen />
+      </View>
+    );
+  }
 
   if (isLoadingAuth) {
     return (

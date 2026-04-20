@@ -13,7 +13,7 @@ import {
   TextInput
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useApp } from '../contexts/AppContext';
 import { useToast } from '../contexts/ToastContext';
@@ -51,7 +51,12 @@ export default function AdminLogin() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       
-      <LinearGradient colors={['#2B3A55', '#1A2436']} style={styles.container}>
+      <View style={styles.container}>
+        <Image 
+          source={require('../assets/foto-fundo.png')} 
+          style={styles.backgroundImage}
+          pointerEvents="none"
+        />
         <SafeAreaView style={{ flex: 1 }}>
           <KeyboardAvoidingView 
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -118,13 +123,14 @@ export default function AdminLogin() {
             </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
-      </LinearGradient>
+      </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  backgroundImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', resizeMode: 'cover' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -13,7 +13,7 @@ import {
   ScrollView, StatusBar, SafeAreaView 
 } from 'react-native';
 import { FontAwesome5, Feather } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { register, RegisterResponse } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
@@ -26,6 +26,7 @@ export default function Registo() {
   const { addToast } = useToast();
    
   const [role, setRole] = useState<Role>('aluno');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     nome: '',
@@ -96,11 +97,13 @@ export default function Registo() {
       {/* Arrancando o cabeçalho feio do Expo */}
       <Stack.Screen options={{ headerShown: false }} />
       
-      {/* Aquele fundo degradê que a gente combinou */}
-      <LinearGradient 
-        colors={['#2B3A55', '#1A2436']} 
-        style={styles.container}
-      >
+      {/* Fundo com imagem */}
+      <View style={styles.container}>
+        <Image 
+          source={require('../../assets/foto-fundo.png')} 
+          style={styles.backgroundImage}
+          pointerEvents="none"
+        />
         <StatusBar barStyle="light-content" />
         
         <SafeAreaView style={{ flex: 1 }}>
@@ -125,11 +128,14 @@ export default function Registo() {
               
               <Text style={styles.formTitle}>Quem é você?</Text>
 
-              {/* Botõezinhos estilo switch pra escolher se é aluno ou motorista */}
+              {/* Botõezinhos estilo switch - limpar dados ao mudar Role */}
               <View style={styles.roleToggleContainer}>
                 <TouchableOpacity
                   style={[styles.roleBtn, role === 'aluno' && styles.roleBtnActive]}
-                  onPress={() => setRole('aluno')}
+                  onPress={() => {
+                    setRole('aluno');
+                    setFormData(prev => ({ ...prev, matriculaVeiculo: '', cartaConducao: '' }));
+                  }}
                   activeOpacity={0.8}
                 >
                   <FontAwesome5 name="user-graduate" size={14} color={role === 'aluno' ? theme.darkBlue : theme.textMain} style={{marginRight: 6}} />
@@ -140,7 +146,10 @@ export default function Registo() {
 
                 <TouchableOpacity
                   style={[styles.roleBtn, role === 'motorista' && styles.roleBtnActive]}
-                  onPress={() => setRole('motorista')}
+                  onPress={() => {
+                    setRole('motorista');
+                    setFormData(prev => ({ ...prev, escola: '', matriculaEscolar: '' }));
+                  }}
                   activeOpacity={0.8}
                 >
                   <FontAwesome5 name="user-tie" size={14} color={role === 'motorista' ? theme.darkBlue : theme.textMain} style={{marginRight: 6}} />
@@ -162,8 +171,8 @@ export default function Registo() {
               />
               <TextInput 
                 style={styles.inputSimple} 
-                placeholder="E-mail" 
-                keyboardType="email-address" 
+                placeholder={role === 'aluno' ? 'E-mail ou CPF' : 'E-mail'} 
+                keyboardType={role === 'aluno' ? 'default' : 'email-address'} 
                 autoCapitalize="none" 
                 placeholderTextColor={theme.textLight}
                 value={formData.email}
@@ -195,13 +204,7 @@ export default function Registo() {
                     value={formData.escola}
                     onChangeText={(v) => handleInputChange('escola', v)}
                   />
-                  <TextInput 
-                    style={styles.inputSimple} 
-                    placeholder="Número de Matrícula (Opcional)" 
-                    placeholderTextColor={theme.textLight}
-                    value={formData.matriculaEscolar}
-                    onChangeText={(v) => handleInputChange('matriculaEscolar', v)}
-                  />
+                  
                 </>
               ) : (
                 <>
@@ -265,7 +268,7 @@ export default function Registo() {
             <View style={{ height: 30 }} />
           </ScrollView>
         </SafeAreaView>
-      </LinearGradient>
+      </View>
     </>
   );
 }
@@ -273,6 +276,7 @@ export default function Registo() {
 // Os estilos tão todos aqui embaixo pra não poluir o código lá em cima
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  backgroundImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', resizeMode: 'cover' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20 },
   backBtn: { padding: 5 },
   headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF' },
