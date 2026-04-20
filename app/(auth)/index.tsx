@@ -23,6 +23,12 @@ import { Image } from 'react-native';
 /* Navigacao do app */
 import { Stack, useRouter } from 'expo-router';
 
+/* Contextos */
+import { useApp } from '../../contexts/AppContext';
+
+/* API de login */
+import { login, LoginResponse } from '../../services/api';
+
 /* Pegando a largura da tela para animacoes */
 const { width } = Dimensions.get('window');
 
@@ -33,7 +39,8 @@ const { width } = Dimensions.get('window');
 ============================================================ */
 export default function Index() {
   const router = useRouter();
-  
+  const { setAuth } = useApp();
+   
   /* Estados do formulario */
   const [loginType, setLoginType] = useState<'aluno' | 'motorista'>('aluno');
   const [showPassword, setShowPassword] = useState(false);
@@ -81,17 +88,11 @@ export default function Index() {
      FUNCAO DE LOGIN
      Grupo: Validacao diferente para Aluno e Motorista
    ========================================================== */
-  const handleLogin = () => {
+  const handleLogin = async () => {
     // Validacao para Aluno (aceita CPF ou email)
     if (loginType === 'aluno') {
       if (!email.trim()) {
-        setLoading(false);
-        return;
-      }
-      // Se for CPF (só numeros), valida tamanho
-      const isCPF = /^\d+$/.test(email.trim());
-      if (isCPF && email.trim().length < 11) {
-        setLoading(false);
+        // Toast de erro seria aqui - por agora so retorna
         return;
       }
     }
@@ -99,22 +100,41 @@ export default function Index() {
     // Validacao para Motorista (só email)
     if (loginType === 'motorista') {
       if (!email.trim() || !email.includes('@')) {
-        setLoading(false);
         return;
       }
     }
     
     // Validar senha
     if (!password.trim()) {
-      setLoading(false);
       return;
     }
     
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      router.replace('/(tabs)/home');
-    }, 2000);
+    
+    // Login real (usando a API)
+    try {
+      const result: LoginResponse = await login(email.trim(), password);
+      
+      if (result.success && result.token && result.user) {
+        // Guardar token e user e navegar para home
+        setAuth(result.token, { 
+          id: result.user.id, 
+          nome: result.user.nome, 
+          email: result.user.email, 
+          role: result.user.role 
+        }, result.user.role);
+        
+        router.replace('/(tabs)/home');
+      } else {
+        // Se API retornar erro, mostra mensagem
+        alert(result.message || 'Erro ao fazer login');
+      }
+    } catch (error) {
+      console.log('Login error:', error);
+      alert('Erro de conexão');
+    }
+    
+    setLoading(false);
   };
 
   /* ==========================================================
