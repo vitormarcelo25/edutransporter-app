@@ -267,21 +267,20 @@ export default function Index() {
                 <TouchableOpacity><Text style={styles.forgotText}>Esqueceu a senha</Text></TouchableOpacity>
               </View>
 
-              {/* Botao ENTRAR dourado com fingerprint integrado */}
-              <TouchableOpacity style={styles.mainBtn} onPress={handleLogin} disabled={loading}>
-                {loading ? (
-                  /* Spinner carregando */
-                  <Animated.View style={{ transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}>
-                    <Feather name="loader" size={24} color={theme.darkBlue} />
-                  </Animated.View>
-                ) : (
-                  /* Texto + Fingerprint */
-                  <>
+              {/* Botao ENTRAR dourado com borda luminosa 3D */}
+              <View style={styles.mainBtnWrapper}>
+                <View style={styles.mainBtnGlow} />
+                <View style={styles.mainBtnBorder} />
+                <TouchableOpacity style={styles.mainBtn} onPress={handleLogin} disabled={loading}>
+                  {loading ? (
+                    <Animated.View style={{ transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}>
+                      <Feather name="loader" size={24} color={theme.darkBlue} />
+                    </Animated.View>
+                  ) : (
                     <Text style={styles.mainBtnText}>Entrar</Text>
-                    <MaterialCommunityIcons name="fingerprint" size={24} color={theme.darkBlue} style={{ marginLeft: 8 }} />
-                  </>
-                )}
-              </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              </View>
             </Animated.View>
 
             {/* Rodape com links */}
@@ -385,7 +384,7 @@ const styles = StyleSheet.create({
   checkText: { color: '#94A3B8', fontSize: 14 },
   forgotText: { color: '#F5A623', fontWeight: 'bold', fontSize: 14 },
 
-  /* Botao entrar */
+/* Botao entrar */
   mainBtn: { 
     height: 58, 
     backgroundColor: '#F5A623', 
@@ -398,8 +397,34 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3, 
     shadowRadius: 10,
     width: '100%',
+    position: 'relative',
+    overflow: 'visible',
   },
   mainBtnText: { color: '#1A253A', fontSize: 18, fontWeight: 'bold' },
+  mainBtnWrapper: {
+    position: 'relative',
+    overflow: 'visible',
+  },
+  mainBtnBorder: {
+    position: 'absolute',
+    top: -3,
+    left: -3,
+    right: -3,
+    bottom: -3,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: '#C9A227',
+  },
+  mainBtnGlow: {
+    position: 'absolute',
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: 'rgba(201, 162, 39, 0.2)',
+  },
 
   /* Footer */
   footer: { alignItems: 'center', marginTop: 30, width: '100%', maxWidth: 400 },

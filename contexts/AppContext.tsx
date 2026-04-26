@@ -37,7 +37,7 @@ const AppContext = createContext({
   setAdminSection: (section: AdminSection) => {},
   isAdmin: false,
   setAdminRole: () => {},
-  // Auth persistence
+  // Persistência de auth
   authToken: null as string | null,
   userData: null as UserData | null,
   setAuth: (token: string, user: UserData, role: UserRole) => {},
@@ -58,7 +58,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
   const isAdmin = userRole === 'admin';
 
-  // Load persisted auth on mount
+  // Carrega auth persistido ao iniciar
   useEffect(() => {
     (async () => {
       try {
