@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -21,7 +21,7 @@ const { width } = Dimensions.get('window');
 
 export default function Listas() {
   const router = useRouter();
-  const { theme, isDark, selectedSeat, setSelectedSeat, userRole } = useApp();
+  const { theme, isDark, userRole, userData, confirmouPresenca, assentoAutomatico, ordemChegada } = useApp();
   
   const [rota, setRota] = useState<Rota | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,62 +32,18 @@ export default function Listas() {
 
   const loadRota = async () => {
     setLoading(true);
-    const result: RotaResponse = await getRotaDoDia();
+    const result: RotaResponse = await getRotaDoDia(userRole === 'aluno' ? userData?.id : undefined);
     setLoading(false);
     if (result.success && result.rota) {
       setRota(result.rota);
     }
   };
 
-const handleSeatPress = (seatId: number) => {
-    if (userRole !== 'aluno') return; // Apenas aluno escolhe lugar
-    const isOccupied = occupiedSeats.includes(seatId);
-    if (!isOccupied && setSelectedSeat) {
-      setSelectedSeat(seatId);
-    }
-  };
+  useEffect(() => {
+    loadRota();
+  }, []);
 
-  const renderSeat = (seatId: number) => {
-    const isSelected = selectedSeat === seatId;
-    const isOccupied = occupiedSeats.includes(seatId);
-    const canChoose = userRole === 'aluno';
-
-    // Para motorist ou admin, mostrar como ocupado
-    const showAsOccupied = isOccupied || !canChoose;
-
-    return (
-      <TouchableOpacity 
-        key={`seat-${seatId}`}
-        disabled={!canChoose}
-        onPress={() => handleSeatPress(seatId)}
-        style={[
-          styles.seat, 
-          { 
-            width: SEAT_SIZE,
-            height: SEAT_SIZE,
-            backgroundColor: isDark ? '#1E2A3E' : '#E2E8F0', 
-            borderColor: theme.border 
-          },
-          showAsOccupied && styles.seatOccupied,
-          isSelected && { backgroundColor: theme.gold, borderColor: theme.gold }
-        ]}
-      >
-        <FontAwesome5 
-          name="chair" 
-          size={SEAT_SIZE * 0.4} 
-          color={isSelected ? '#1A253A' : showAsOccupied ? '#64748B' : theme.subtext} 
-        />
-        <Text style={[
-          styles.seatNum, 
-          { color: isSelected ? '#1A253A' : theme.subtext, fontSize: SEAT_SIZE * 0.25 }
-        ]}>
-          {seatId}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
-
-  // Se for motorista ou admin, mostrar lista de alunos (não o mapa de assentos)
+// Se for motorista ou admin, mostrar lista de alunos (não o mapa de assentos)
   if (userRole !== 'aluno') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -136,17 +92,17 @@ const handleSeatPress = (seatId: number) => {
                   <View style={[styles.infoRow, { borderBottomColor: theme.border }]}>
                     <FontAwesome5 name="users" size={20} color={theme.gold} />
                     <Text style={[styles.infoLabel, { color: theme.subtext }]}>Total de Alunos</Text>
-                    <Text style={[styles.infoValue, { color: theme.text }]}>64</Text>
+                    <Text style={[styles.infoValue, { color: theme.text }]}>{rota?.alunos.length || 0}</Text>
                   </View>
                   <View style={[styles.infoRow, { borderBottomColor: theme.border }]}>
                     <MaterialCommunityIcons name="checkbox-marked" size={20} color="#48BB78" />
-                    <Text style={[styles.infoLabel, { color: theme.subtext }]}>Presentes Hoje</Text>
-                    <Text style={[styles.infoValue, { color: '#48BB78' }]}>{occupiedSeats.length}</Text>
+                    <Text style={[styles.infoLabel, { color: theme.subtext }]}>Presentes</Text>
+                    <Text style={[styles.infoValue, { color: '#48BB78' }]}>{rota?.alunos.filter(a => a.presente).length || 0}/40</Text>
                   </View>
                   <View style={styles.infoRow}>
                     <Feather name="map-pin" size={20} color="#3182CE" />
                     <Text style={[styles.infoLabel, { color: theme.subtext }]}>Rota</Text>
-                    <Text style={[styles.infoValue, { color: theme.text }]}>ORE 3 - Ida</Text>
+                    <Text style={[styles.infoValue, { color: theme.text }]}>{rota?.nome || '-'}</Text>
                   </View>
                 </View>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Lista de Alunos Presentes</Text>
@@ -166,204 +122,171 @@ const handleSeatPress = (seatId: number) => {
     );
   }
 
-  // Para aluno - Layout estilo ônibus com fileiras
-  const totalRows = 11;
-  const seatsPerRow = 4; // 2 esquerda, 2 direita
-  
-  const renderBusSeat = (seatId: number, row: number, position: 'left-outer' | 'left-inner' | 'right-inner' | 'right-outer') => {
-    const isSelected = selectedSeat === seatId;
-    const isOccupied = occupiedSeats.includes(seatId);
-    
-    let bg = '#48BB78';
-    let borderColor = '#2D7A4E';
-    let textColor = '#FFF';
-    let iconColor = '#FFF';
-    
-    if (isSelected) {
-      bg = theme.gold;
-      borderColor = '#D4920A';
-      textColor = '#1A253A';
-      iconColor = '#1A253A';
-    } else if (isOccupied) {
-      bg = '#6B7280';
-      borderColor = '#4B5563';
-      textColor = '#9CA3AF';
-      iconColor = '#9CA3AF';
-    }
-
-    return (
-      <TouchableOpacity
-        key={`seat-${seatId}`}
-        disabled={isOccupied || isSelected}
-        onPress={() => handleSeatPress(seatId)}
-        activeOpacity={0.7}
-        style={{
-          width: 65,
-          height: 65,
-          borderRadius: 12,
-          backgroundColor: bg,
-          borderWidth: 2,
-          borderColor: borderColor,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginHorizontal: 4,
-          marginVertical: 6,
-          elevation: 3,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.2,
-          shadowRadius: 3,
-        }}
-      >
-        <FontAwesome5 name="chair" size={20} color={iconColor} />
-        <Text style={{
-          fontSize: 14,
-          fontWeight: 'bold',
-          color: textColor,
-          marginTop: 2,
-        }}>
-          {seatId}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
-
-  const renderRow = (row: number) => {
-    const leftOuter = row * 4 + 1;
-    const leftInner = row * 4 + 2;
-    const rightInner = row * 4 + 3;
-    const rightOuter = row * 4 + 4;
-    
-    if (leftOuter > 44) return null;
-    
-    return (
-      <View key={`row-${row}`} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 8 }}>
-        {/* Lado esquerdo */}
-        <View style={{ flexDirection: 'row' }}>
-          {renderBusSeat(leftOuter, row, 'left-outer')}
-          {leftInner <= 44 && renderBusSeat(leftInner, row, 'left-inner')}
-        </View>
-        
-        {/* Corredor */}
-        <View style={{ width: 30 }} />
-        
-        {/* Lado direito */}
-        <View style={{ flexDirection: 'row' }}>
-          {rightInner <= 44 && renderBusSeat(rightInner, row, 'right-inner')}
-          {rightOuter <= 44 && renderBusSeat(rightOuter, row, 'right-outer')}
-        </View>
-      </View>
-    );
-  };
-
+  // Para aluno - Mostrar apenas assento atribuído automaticamente
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#1A253A' }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={theme.status as any} />
 
-      {/* Header estilo ônibus */}
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingTop: Platform.OS === 'ios' ? 15 : 25,
-        paddingBottom: 15,
-        backgroundColor: '#0F172A',
-        borderBottomWidth: 1,
-        borderBottomColor: '#334155',
-      }}>
-        <TouchableOpacity onPress={() => router.replace('/home')} style={{ padding: 5 }}>
-          <Feather name="arrow-left" size={24} color="#FFF" />
+      <View style={[styles.headerPremium, { backgroundColor: theme.card }]}>
+        <TouchableOpacity onPress={() => router.replace('/home')} style={styles.backBtn}>
+          <Feather name="arrow-left" size={22} color={theme.text} />
         </TouchableOpacity>
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#FFF' }}>Escolha seu Lugar</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
-            <View style={{ backgroundColor: theme.gold, paddingHorizontal: 12, paddingVertical: 3, borderRadius: 8 }}>
-              <Text style={{ color: '#1A253A', fontSize: 12, fontWeight: 'bold' }}>ORE 3</Text>
-            </View>
-            <Text style={{ color: '#48BB78', fontSize: 13 }}>{44 - occupiedSeats.length} vagas</Text>
-          </View>
+        <View style={styles.headerTitleContainer}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Minha Viagem</Text>
+          <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>Hoje • HOJE</Text>
         </View>
-        <View style={{ width: 34 }} />
+        <TouchableOpacity style={styles.headerBtn}>
+          <MaterialCommunityIcons name="bell-outline" size={22} color={theme.text} />
+        </TouchableOpacity>
       </View>
 
-      {/* Representação visual do ônibus */}
-      <View style={{ flex: 1, paddingTop: 20, paddingHorizontal: 10 }}>
-        {/* Parte da frente (motorista) */}
-        <View style={{ alignItems: 'center', marginBottom: 15 }}>
-          <View style={{ 
-            width: 100, 
-            height: 35, 
-            backgroundColor: '#334155', 
-            borderTopLeftRadius: 15, 
-            borderTopRightRadius: 15,
-            justifyContent: 'center',
-            alignItems: 'center',
-            borderWidth: 2,
-            borderBottomWidth: 0,
-            borderColor: '#475569'
-          }}>
-            <Text style={{ color: '#94A3B8', fontSize: 10, fontWeight: 'bold', letterSpacing: 1 }}>MOTORISTA</Text>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Card Principal - Visual Premium */}
+        <View style={[styles.seatCard, { backgroundColor: theme.card }]}>
+          {/* Barra decorativa */}
+          <View style={[styles.seatCardBar, { backgroundColor: confirmouPresenca ? '#48BB78' : theme.gold }]} />
+          
+          <View style={styles.seatCardContent}>
+            {/* Status Badge */}
+            <View style={[styles.statusBadge, { backgroundColor: confirmouPresenca ? 'rgba(72,187,120,0.15)' : 'rgba(245,166,35,0.15)' }]}>
+              <View style={[styles.statusDot, { backgroundColor: confirmouPresenca ? '#48BB78' : theme.gold }]} />
+              <Text style={[styles.statusText, { color: confirmouPresenca ? '#48BB78' : theme.gold }]}>
+                {confirmouPresenca ? 'Viagem Confirmada' : 'Aguardando Confirmação'}
+              </Text>
+            </View>
+
+            {/* Assento - Visual Grande e Impactante */}
+            <View style={styles.seatVisualContainer}>
+              {confirmouPresenca && assentoAutomatico ? (
+                <>
+                  <View style={[styles.seatCircle, { borderColor: theme.gold }]}>
+                    <FontAwesome5 name="chair" size={48} color={theme.gold} />
+                  </View>
+                  <Text style={[styles.seatNumber, { color: theme.gold }]}>#{assentoAutomatico}</Text>
+                  <Text style={[styles.seatLabel, { color: theme.subtext }]}>SEU ASSENTO</Text>
+                </>
+              ) : (
+                <>
+                  <View style={[styles.seatCircle, { borderColor: theme.subtext, opacity: 0.5 }]}>
+                    <FontAwesome5 name="chair" size={48} color={theme.subtext} />
+                  </View>
+                  <Text style={[styles.seatNumberPending, { color: theme.subtext }]}>--</Text>
+                  <Text style={[styles.seatLabel, { color: theme.subtext }]}>AGUARDANDO</Text>
+                </>
+              )}
+            </View>
+
+            {/* Ordem na fila */}
+            {confirmouPresenca && ordemChegada && (
+              <View style={styles.queueContainer}>
+                <View style={[styles.queueBadge, { backgroundColor: 'rgba(245,166,35,0.15)' }]}>
+                  <MaterialCommunityIcons name="run" size={16} color={theme.gold} />
+                  <Text style={[styles.queueText, { color: theme.gold }]}>
+                    {ordemChegada}º na fila de confirmação
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         </View>
 
-        {/* Fileiras de assentos */}
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 180 }}>
-          {Array.from({ length: totalRows }).map((_, i) => renderRow(i))}
-        </ScrollView>
-      </View>
-
-      {/* Footer com seleção */}
-      <View style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: 20,
-        backgroundColor: '#0F172A',
-        borderTopWidth: 1,
-        borderTopColor: '#334155',
-        paddingBottom: Platform.OS === 'ios' ? 40 : 25,
-      }}>
-        {selectedSeat ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
-            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#48BB7833', justifyContent: 'center', alignItems: 'center' }}>
-              <FontAwesome5 name="check" size={24} color="#48BB78" />
+        {/* Cards de Informação - Grid 2x2 */}
+        <View style={styles.infoGrid}>
+          <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
+            <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(72,187,120,0.15)' }]}>
+              <MaterialCommunityIcons name="clock-outline" size={20} color="#48BB78" />
             </View>
-            <View style={{ marginLeft: 12 }}>
-              <Text style={{ fontSize: 12, color: '#94A3B8' }}>Assento selecionado</Text>
-              <Text style={{ fontSize: 24, fontWeight: 'bold', color: theme.gold }}>#{selectedSeat}</Text>
-            </View>
+            <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Saída</Text>
+            <Text style={[styles.infoCardValue, { color: theme.text }]}>06:30</Text>
+            <Text style={[styles.infoCardSub, { color: theme.subtext }]}>Manhã</Text>
           </View>
-        ) : (
-          <Text style={{ textAlign: 'center', color: '#94A3B8', marginBottom: 15 }}>
-            Toque em um assento verde para selecionar
-          </Text>
+
+          <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
+            <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(66,153,225,0.15)' }]}>
+              <MaterialCommunityIcons name="school" size={20} color="#4299E1" />
+            </View>
+            <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Destino</Text>
+            <Text style={[styles.infoCardValue, { color: theme.text }]}>{rota?.escola || '-'}</Text>
+            <Text style={[styles.infoCardSub, { color: theme.subtext }]}>{rota?.tipo || '-'}</Text>
+          </View>
+
+          <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
+            <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(245,166,35,0.15)' }]}>
+              <FontAwesome5 name="bus-school" size={20} color={theme.gold} />
+            </View>
+            <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Horário</Text>
+            <Text style={[styles.infoCardValue, { color: theme.text }]}>{rota?.horario || '--:--'}</Text>
+            <Text style={[styles.infoCardSub, { color: theme.subtext }]}>{rota?.tipo || '-'}</Text>
+          </View>
+
+            <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
+              <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(159,122,234,0.15)' }]}>
+                <FontAwesome5 name="users" size={20} color="#9F7AEA" />
+              </View>
+              <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Ocupação</Text>
+              <Text style={[styles.infoCardValue, { color: theme.text }]}>
+                {rota?.alunos.filter((a: any) => a.presente).length || 0}/40
+              </Text>
+              <View style={[styles.progressBar, { backgroundColor: theme.inputBg }]}>
+                <View style={[styles.progressFill, { width: `${(rota?.alunos.filter((a: any) => a.presente).length || 0) / 40 * 100}%`, backgroundColor: '#9F7AEA' }]} />
+              </View>
+            </View>
+        </View>
+
+        {/* Card de Ação - se não confirmou */}
+        {!confirmouPresenca && (
+          <TouchableOpacity 
+            style={[styles.ctaButton, { backgroundColor: theme.gold }]}
+            onPress={() => router.replace('/home')}
+          >
+            <View style={styles.ctaContent}>
+              <View style={styles.ctaIcon}>
+                <Feather name="check-circle" size={28} color="#1A253A" />
+              </View>
+              <View style={styles.ctaText}>
+                <Text style={[styles.ctaTitle, { color: '#1A253A' }]}>Confirmar Presença</Text>
+                <Text style={[styles.ctaSub, { color: '#1A253A' }]}>Toque para confirmar sua viagem</Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={24} color="#1A253A" />
+          </TouchableOpacity>
         )}
-        
-        <TouchableOpacity 
-          style={{
-            height: 56,
-            borderRadius: 28,
-            backgroundColor: selectedSeat ? theme.gold : '#334155',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-          disabled={!selectedSeat}
-          onPress={() => router.replace('/home')}
-        >
-          <Text style={{
-            fontSize: 17,
-            fontWeight: 'bold',
-            color: selectedSeat ? '#1A253A' : '#64748B',
-          }}>
-            {selectedSeat ? `Confirmar Assento #${selectedSeat}` : 'Selecione um lugar'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+
+        {/* Card de Cancelamento - se confirmou */}
+        {confirmouPresenca && (
+          <TouchableOpacity 
+            style={[styles.cancelButton, { borderColor: '#EF4444' }]}
+            onPress={() => router.replace('/home')}
+          >
+            <Feather name="x-circle" size={20} color="#EF4444" />
+            <Text style={[styles.cancelText, { color: '#EF4444' }]}>Cancelar minha confirmação</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Informações Adicionais */}
+        <View style={[styles.helpCard, { backgroundColor: theme.card }]}>
+          <View style={styles.helpHeader}>
+            <MaterialCommunityIcons name="information" size={18} color={theme.gold} />
+            <Text style={[styles.helpTitle, { color: theme.text }]}>Como funciona</Text>
+          </View>
+          <View style={styles.helpItem}>
+            <View style={[styles.helpDot, { backgroundColor: '#48BB78' }]} />
+            <Text style={[styles.helpText, { color: theme.subtext }]}>Confirme sua presença antes das 06:00</Text>
+          </View>
+          <View style={styles.helpItem}>
+            <View style={[styles.helpDot, { backgroundColor: theme.gold }]} />
+            <Text style={[styles.helpText, { color: theme.subtext }]}>O assento é definido automaticamente</Text>
+          </View>
+          <View style={styles.helpItem}>
+            <View style={[styles.helpDot, { backgroundColor: '#4299E1' }]} />
+            <Text style={[styles.helpText, { color: theme.subtext }]}>Primeiros a confirmar sentam mais à frente</Text>
+          </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -535,5 +458,292 @@ const styles = StyleSheet.create({
   busSelHint: { fontSize: 14, textAlign: 'center', marginBottom: 15 },
   
   busConfirmBtn: { height: 54, borderRadius: 27, justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  busConfirmText: { fontSize: 16, fontWeight: 'bold' }
+  busConfirmText: { fontSize: 16, fontWeight: 'bold' },
+
+  // Novos estilos para aluno - Assento Automático
+  assentoContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 30,
+  },
+  assentoNumero: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    marginTop: 10,
+  },
+  ordemBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    gap: 8,
+    alignSelf: 'center',
+  },
+  ordemBadgeText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  legendaCard: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 16,
+  },
+  legendaTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  legendaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 10,
+  },
+  legendaDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  legendaText: {
+    fontSize: 13,
+    flex: 1,
+  },
+
+  // Novos estilos premium para a tela de aluno
+  headerPremium: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 10 : 25,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#37474F',
+  },
+  headerTitleContainer: {
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  headerBtn: {
+    padding: 8,
+  },
+
+  seatCard: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  seatCardBar: {
+    height: 4,
+    width: '100%',
+  },
+  seatCardContent: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 8,
+    marginBottom: 20,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  seatVisualContainer: {
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  seatCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  seatNumber: {
+    fontSize: 42,
+    fontWeight: 'bold',
+  },
+  seatNumberPending: {
+    fontSize: 42,
+    fontWeight: 'bold',
+    opacity: 0.5,
+  },
+  seatLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginTop: 4,
+  },
+
+  queueContainer: {
+    marginTop: 16,
+  },
+  queueBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 16,
+    gap: 8,
+  },
+  queueText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  infoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 16,
+  },
+  infoCard: {
+    width: '47%',
+    padding: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  infoCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  infoCardLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  infoCardValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  infoCardSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  progressBar: {
+    width: '100%',
+    height: 4,
+    borderRadius: 2,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+
+  ctaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 20,
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+  },
+  ctaContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  ctaIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  ctaText: {},
+  ctaTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  ctaSub: {
+    fontSize: 12,
+    opacity: 0.8,
+    marginTop: 2,
+  },
+
+  cancelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    gap: 8,
+    marginBottom: 16,
+  },
+  cancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  helpCard: {
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 20,
+  },
+  helpHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  helpTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  helpItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 10,
+  },
+  helpDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  helpText: {
+    fontSize: 13,
+    flex: 1,
+  },
 });

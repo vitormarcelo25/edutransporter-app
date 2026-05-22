@@ -17,7 +17,8 @@ import {
   TextInput, 
   Platform,
   StatusBar,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  Alert
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -57,6 +58,19 @@ export default function Chat() {
     setInputMessage('');
   };
 
+  const deleteMessage = (id: string) => {
+    Alert.alert(
+      'Excluir mensagem',
+      'Tem certeza que deseja excluir esta mensagem?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Excluir', style: 'destructive', onPress: () => {
+          setMessages(messages.filter(m => m.id !== id));
+        }},
+      ]
+    );
+  };
+
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
@@ -70,14 +84,20 @@ export default function Chat() {
       {!item.isMe && (
         <Text style={styles.senderName}>{item.sender}</Text>
       )}
-      <View style={[styles.bubble, item.isMe ? styles.bubbleMe : styles.bubbleOther]}>
-        <Text style={[styles.messageText, item.isMe ? styles.textMe : styles.textOther]}>
-          {item.text}
-        </Text>
-        <Text style={[styles.time, item.isMe ? styles.timeMe : styles.timeOther]}>
-          {item.time}
-        </Text>
-      </View>
+      <TouchableOpacity 
+        onLongPress={() => item.isMe && deleteMessage(item.id)}
+        delayLongPress={500}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.bubble, item.isMe ? styles.bubbleMe : styles.bubbleOther]}>
+          <Text style={[styles.messageText, item.isMe ? styles.textMe : styles.textOther]}>
+            {item.text}
+          </Text>
+          <Text style={[styles.time, item.isMe ? styles.timeMe : styles.timeOther]}>
+            {item.time}
+          </Text>
+        </View>
+      </TouchableOpacity>
     </View>
   );
 

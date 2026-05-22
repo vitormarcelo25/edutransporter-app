@@ -4,14 +4,12 @@ import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Pla
 import { Feather } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from './_layout';
-import { getPerfil, updatePerfil, Usuario, PerfilResponse, PerfilUpdateResponse } from '@/services/api';
+import { updatePerfil, PerfilUpdateResponse } from '@/services/api';
 
 export default function DadosPessoais() {
   const router = useRouter();
-  const { theme, userRole } = useApp();
-  const [loading, setLoading] = useState(true);
+  const { theme, userRole, userData, authToken, setAuth } = useApp();
   const [salvando, setSalvando] = useState(false);
-  const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
@@ -19,30 +17,16 @@ export default function DadosPessoais() {
     cidade: '',
     escola: '',
   });
-  const [error, setError] = useState('');
-
-  const loadPerfil = async () => {
-    setLoading(true);
-    setError('');
-    const result: PerfilResponse = await getPerfil();
-    setLoading(false);
-    if (result.success && result.usuario) {
-      setUsuario(result.usuario);
-      setFormData({
-        nome: result.usuario.nome,
-        email: result.usuario.email,
-        telefone: result.usuario.telefone,
-        cidade: result.usuario.cidade,
-        escola: result.usuario.escola || '',
-      });
-    } else {
-      setError(result.message || 'Erro ao carregar perfil');
-    }
-  };
 
   useEffect(() => {
-    loadPerfil();
-  }, []);
+    setFormData({
+      nome: userData?.nome || '',
+      email: userData?.email || '',
+      telefone: '',
+      cidade: '',
+      escola: '',
+    });
+  }, [userData]);
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -56,14 +40,22 @@ export default function DadosPessoais() {
 
     setSalvando(true);
     const result: PerfilUpdateResponse = await updatePerfil(formData);
-    setSalvando(false);
 
     if (result.success) {
+      if (authToken && userData) {
+        await setAuth(authToken, {
+          ...userData,
+          nome: formData.nome,
+          email: formData.email,
+        }, userRole);
+      }
       Alert.alert('Sucesso', 'Dados atualizados com sucesso!');
       router.back();
     } else {
       Alert.alert('Erro', result.message || 'Erro ao salvar');
     }
+
+    setSalvando(false);
   };
 
   return (
@@ -78,21 +70,7 @@ export default function DadosPessoais() {
         <View style={{ width: 40 }} />
       </View>
 
-      {loading ? (
-        <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color={theme.gold} />
-          <Text style={[styles.loadingText, { color: theme.subtext }]}>Carregando...</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.centerContent}>
-          <Feather name="alert-circle" size={64} color="#EF4444" />
-          <Text style={[styles.errorText, { color: '#EF4444' }]}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={loadPerfil}>
-            <Text style={styles.retryBtnText}>Tentar novamente</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* Campos do formulário */}
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.cardTitle, { color: theme.text }]}>Informações Pessoais</Text>
@@ -130,6 +108,7 @@ export default function DadosPessoais() {
                 placeholder="(00) 00000-0000"
                 placeholderTextColor={theme.subtext}
                 keyboardType="phone-pad"
+                maxLength={11}
               />
             </View>
 
@@ -173,7 +152,6 @@ export default function DadosPessoais() {
 
           <View style={{ height: 40 }} />
         </ScrollView>
-      )}
     </SafeAreaView>
   );
 }
