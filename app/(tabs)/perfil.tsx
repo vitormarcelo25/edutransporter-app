@@ -17,7 +17,8 @@ import {
   SafeAreaView, 
   ScrollView, 
   Switch,
-  Platform
+  Platform,
+  Image
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
@@ -27,30 +28,34 @@ export default function Perfil() {
   const router = useRouter();
   
   // Pegando tudo o que a gente precisa direto do nosso contexto
-  const { isDark, toggleTheme, theme, userRole, clearAuth } = useApp();
+  const { isDark, toggleTheme, theme, userRole, userData, clearAuth } = useApp();
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
       {/* Escondendo a barra nativa do Expo pra ficar um design mais limpo */}
       <Stack.Screen options={{ headerShown: false }} />
+      
+      {/* Imagem de fundo */}
+      <Image 
+        source={require('../../assets/plano-de-fundo-perfil.png')} 
+        style={styles.backgroundImage}
+        resizeMode="cover"
+      />
+      
+      {/* Overlay para legibilidade do texto */}
+      <View style={[styles.overlay, isDark ? styles.overlayDark : styles.overlayLight]} />
       
       {/* Cabeçalho padrão */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <Text style={[styles.title, { color: theme.text }]}>Meu Perfil</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} style={styles.content}>
         
         {/* Informação do Utilizador - Agora é dinâmico, muda se for aluno ou motorista */}
         <View style={styles.profileBox}>
-          <View style={[styles.avatar, { backgroundColor: theme.gold }]}>
-            {/* Gambiarrazinha pra mostrar a inicial certa do nome */}
-            <Text style={styles.avatarTxt}>
-              {userRole === 'aluno' ? 'G' : 'C'}
-            </Text>
-          </View>
           <Text style={[styles.name, { color: theme.text }]}>
-            {userRole === 'aluno' ? 'Gabriel Silva' : 'Carlos Mendes'}
+            {userData?.nome || (userRole === 'aluno' ? 'Aluno' : 'Motorista')}
           </Text>
           <Text style={{ color: theme.subtext, fontSize: 14 }}>
             {userRole === 'aluno' ? 'Aluno da Rota ORE 3' : 'Motorista do ORE 3'}
@@ -180,6 +185,23 @@ export default function Perfil() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  content: { zIndex: 1 },
+  backgroundImage: { 
+    ...StyleSheet.absoluteFillObject, 
+    width: '100%', 
+    height: '100%',
+    zIndex: -1,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+  },
+  overlayDark: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  overlayLight: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+  },
   header: { 
     flexDirection: 'row', 
     justifyContent: 'space-between', 
@@ -191,10 +213,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 19, fontWeight: 'bold' },
   
   profileBox: { alignItems: 'center', paddingVertical: 25 },
-  avatar: { width: 90, height: 90, borderRadius: 45, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  avatarTxt: { fontSize: 36, fontWeight: '900', color: '#1A253A' },
-  name: { fontSize: 22, fontWeight: 'bold' },
-  editBadge: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
+  name: { fontSize: 22, fontWeight: 'bold', marginBottom: 4 },
+  editBadge: { marginTop: 8, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20 },
   
   section: { paddingHorizontal: 20, marginTop: 25 },
   sectionTitle: { fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 10, marginLeft: 10 },

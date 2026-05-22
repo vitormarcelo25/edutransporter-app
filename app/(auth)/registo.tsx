@@ -10,13 +10,16 @@
 import React, { useState } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
-  ScrollView, StatusBar, SafeAreaView 
+  ScrollView, StatusBar, SafeAreaView, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { FontAwesome5, Feather } from '@expo/vector-icons';
 import { Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { register, RegisterResponse } from '../../services/api';
+import { register, RegisterResponse, getCidades, getInstituicoes } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { useApp } from '../../contexts/AppContext';
+import { formatarCPF, limparCPF, validarCPF, formatarTelefone, limparTelefone } from '../../services/cpf';
+import { ExpandableSelect } from '../../components/ui/ExpandableSelect';
 
 // Criando esse tipo aqui pra garantir que a gente não escreva errado depois
 type Role = 'motorista' | 'aluno';
@@ -24,13 +27,16 @@ type Role = 'motorista' | 'aluno';
 export default function Registo() {
   const router = useRouter();
   const { addToast } = useToast();
+  const { setAuth } = useApp();
    
   const [role, setRole] = useState<Role>('aluno');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [cpfError, setCpfError] = useState('');
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
+    cpf: '',
     telefone: '',
     cidade: '',
     escola: '',
@@ -41,7 +47,23 @@ export default function Registo() {
     confirmPassword: '',
   });
 
-  // Cores da nossa identidade visual. Deixei "chumbado" aqui por enquanto 
+  const [cidadeSuggestions] = useState<string[]>(getCidades());
+  const [instituicoesFiltradas, setInstituicoesFiltradas] = useState<string[]>([]);
+
+  const handleCidadeSelect = (cidade: string) => {
+    handleInputChange('cidade', cidade);
+    const instituicoes = getInstituicoes(cidade);
+    setInstituicoesFiltradas(instituicoes);
+    if (instituicoes.length > 0) {
+      handleInputChange('escola', '');
+    }
+  };
+
+  const handleInstituicaoSelect = (instituicao: string) => {
+    handleInputChange('escola', instituicao);
+  };
+
+  // Cores da nossa identidade visual. Deixei "chumbado" aqui por enquanto
   // pra facilitar na hora de montar a tela, depois a gente passa pro global se precisar
   const theme = {
     gold: '#F5A623',       
@@ -60,36 +82,54 @@ export default function Registo() {
    // Função fake por enquanto. Quando tiver backend a gente faz a validação certa
    // Por hora só pula pra home pra gente testar o fluxo das telas
    const handleRegisto = async () => {
-     if (formData.password !== formData.confirmPassword) {
-       addToast('error', 'As senhas não coincidem');
-       return;
-     }
+      if (formData.password !== formData.confirmPassword) {
+        addToast('error', 'As senhas não coincidem');
+        return;
+      }
 
-     setLoading(true);
+       if (role === 'aluno' && !validarCPF(formData.cpf)) {
+         setCpfError('CPF deve ter 11 dígitos');
+         return;
+       }
 
-     const data = {
-       nome: formData.nome,
-       email: formData.email,
-       telefone: formData.telefone,
-       cidade: formData.cidade,
-       role: role,
-       escola: formData.escola,
-       matriculaEscolar: formData.matriculaEscolar,
-       matriculaVeiculo: formData.matriculaVeiculo,
-       cartaConducao: formData.cartaConducao,
-       password: formData.password,
-     };
+       if (role === 'aluno' && (!formData.email || !formData.email.includes('@'))) {
+         addToast('error', 'E-mail é obrigatório');
+         return;
+       }
 
-     const result: RegisterResponse = await register(data);
+       setLoading(true);
 
-     setLoading(false);
+       const data = {
+         nome: formData.nome,
+         email: formData.email,
+         cpf: role === 'aluno' ? limparCPF(formData.cpf) : '',
+        telefone: formData.telefone,
+        cidade: formData.cidade,
+        role: role,
+        escola: formData.escola,
+        matriculaEscolar: formData.matriculaEscolar,
+        matriculaVeiculo: formData.matriculaVeiculo,
+        cartaConducao: formData.cartaConducao,
+        password: formData.password,
+      };
 
-     if (result.success) {
-       addToast('success', 'Conta criada com sucesso!');
-       router.replace('/(tabs)/home');
-     } else {
-       addToast('error', result.message || 'Erro ao criar conta');
-     }
+const result: RegisterResponse = await register(data);
+
+      setLoading(false);
+
+      if (result.success && result.token && result.user) {
+        await setAuth(result.token, { 
+          id: result.user.id, 
+          nome: result.user.nome, 
+          email: result.user.email, 
+          role: result.user.role 
+        }, result.user.role);
+        
+        addToast('success', 'Conta criada com sucesso!');
+        router.replace('/(tabs)/home');
+      } else {
+        addToast('error', result.message || 'Erro ao criar conta');
+      }
    };
 
   return (
@@ -119,6 +159,11 @@ export default function Registo() {
 
           {/* O keyboardShouldPersistTaps="handled" salvou a vida aqui. 
               Antes a gente clicava pra registrar e o clique falhava por causa do teclado aberto */}
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+            style={{ flex: 1 }}
+          >
           <ScrollView 
             contentContainerStyle={styles.scrollContent} 
             showsVerticalScrollIndicator={false}
@@ -170,28 +215,33 @@ export default function Registo() {
                 onChangeText={(v) => handleInputChange('nome', v)}
               />
               <TextInput 
-                style={styles.inputSimple} 
-                placeholder={role === 'aluno' ? 'E-mail ou CPF' : 'E-mail'} 
-                keyboardType={role === 'aluno' ? 'default' : 'email-address'} 
+                style={[styles.inputSimple, cpfError && role === 'aluno' ? { borderColor: '#EF4444' } : {}]} 
+                placeholder={role === 'aluno' ? 'CPF' : 'E-mail'} 
+                keyboardType={role === 'aluno' ? 'number-pad' : 'email-address'} 
                 autoCapitalize="none" 
                 placeholderTextColor={theme.textLight}
-                value={formData.email}
-                onChangeText={(v) => handleInputChange('email', v)}
+                value={role === 'aluno' ? formatarCPF(formData.cpf) : formData.email}
+                onChangeText={(v) => {
+                  setCpfError('');
+                  handleInputChange(role === 'aluno' ? 'cpf' : 'email', role === 'aluno' ? limparCPF(v) : v);
+                }}
+                maxLength={role === 'aluno' ? 14 : undefined}
               />
+              {cpfError && role === 'aluno' ? <Text style={{ color: '#EF4444', fontSize: 13, marginTop: -5, marginBottom: 10 }}>{cpfError}</Text> : null}
               <TextInput 
                 style={styles.inputSimple} 
-                placeholder="Número de Telemóvel" 
+                placeholder="(XX) XXXXX-XXXX" 
                 keyboardType="phone-pad" 
                 placeholderTextColor={theme.textLight}
-                value={formData.telefone}
-                onChangeText={(v) => handleInputChange('telefone', v)}
+                value={formatarTelefone(formData.telefone)}
+                onChangeText={(v) => handleInputChange('telefone', limparTelefone(v))}
+                maxLength={15}
               />
-              <TextInput 
-                style={styles.inputSimple} 
-                placeholder="Cidade" 
-                placeholderTextColor={theme.textLight}
+              <ExpandableSelect
                 value={formData.cidade}
-                onChangeText={(v) => handleInputChange('cidade', v)}
+                onSelect={handleCidadeSelect}
+                options={cidadeSuggestions}
+                placeholder="Selecione a Cidade"
               />
 
               {/* Aqui é a mágica: muda os campos de acordo com a aba que a pessoa escolheu lá em cima */}
@@ -199,11 +249,25 @@ export default function Registo() {
                 <>
                   <TextInput 
                     style={styles.inputSimple} 
-                    placeholder="Nome da Escola / Instituição" 
+                    placeholder="E-mail" 
+                    keyboardType="email-address" 
+                    autoCapitalize="none" 
                     placeholderTextColor={theme.textLight}
-                    value={formData.escola}
-                    onChangeText={(v) => handleInputChange('escola', v)}
+                    value={formData.email}
+                    onChangeText={(v) => handleInputChange('email', v)}
                   />
+                  {formData.cidade ? (
+                    <ExpandableSelect
+                      value={formData.escola}
+                      onSelect={handleInstituicaoSelect}
+                      options={instituicoesFiltradas}
+                      placeholder="Selecione a Instituição"
+                    />
+                  ) : (
+                    <View style={[styles.inputSimple, styles.disabledInput, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+                      <Text style={{ color: theme.textLight, fontSize: 15 }}>Selecione uma cidade primeiro</Text>
+                    </View>
+                  )}
                   
                 </>
               ) : (
@@ -214,6 +278,8 @@ export default function Registo() {
                     placeholderTextColor={theme.textLight}
                     value={formData.matriculaVeiculo}
                     onChangeText={(v) => handleInputChange('matriculaVeiculo', v)}
+                    maxLength={7}
+                    autoCapitalize="characters"
                   />
                   <TextInput 
                     style={styles.inputSimple} 
@@ -221,6 +287,8 @@ export default function Registo() {
                     placeholderTextColor={theme.textLight}
                     value={formData.cartaConducao}
                     onChangeText={(v) => handleInputChange('cartaConducao', v)}
+                    keyboardType="numeric"
+                    maxLength={11}
                   />
                 </>
               )}
@@ -267,6 +335,7 @@ export default function Registo() {
             {/* Só um espacinho no final pro scroll não ficar colado na borda */}
             <View style={{ height: 30 }} />
           </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </View>
     </>
@@ -280,7 +349,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20 },
   backBtn: { padding: 5 },
   headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF' },
-  scrollContent: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20 },
+  scrollContent: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20, paddingBottom: 100 },
   
   formContainer: { width: '100%', maxWidth: 450, backgroundColor: '#233248', padding: 24, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 8, marginBottom: 20, borderWidth: 1, borderColor: '#37474F' },
   formTitle: { fontSize: 18, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 15, textAlign: 'center' },
@@ -294,6 +363,7 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#37474F', marginBottom: 20 },
 
   inputSimple: { height: 50, backgroundColor: '#121A2F', borderRadius: 25, marginBottom: 16, paddingHorizontal: 20, color: '#FFF', fontSize: 15, borderWidth: 1, borderColor: '#37474F' },
+  disabledInput: { justifyContent: 'center' },
   
   termsText: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginBottom: 20, marginTop: 5, lineHeight: 18 },
 

@@ -31,8 +31,14 @@ const AppContext = createContext({
   theme: Colors.dark,
   userRole: 'aluno' as UserRole,
   setUserRole: (role: UserRole) => {},
-  selectedSeat: null as number | null,
-  setSelectedSeat: (seat: number | null) => {},
+  // Sistema de confirmação de presença (fila de assentos)
+  confirmouPresenca: false,
+  setConfirmouPresenca: (confirmou: boolean) => {},
+  assentoAutomatico: null as number | null,
+  setAssentoAutomatico: (assento: number | null) => {},
+  ordemChegada: null as number | null,
+  setOrdemChegada: (ordem: number | null) => {},
+  // Sistema antigo removido: selectedSeat
   adminSection: 'dashboard' as AdminSection,
   setAdminSection: (section: AdminSection) => {},
   isAdmin: false,
@@ -50,7 +56,11 @@ export const useApp = () => useContext(AppContext);
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const [isDark, setIsDark] = useState(true);
   const [userRole, setUserRole] = useState<UserRole>('aluno');
-  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
+  // Sistema de confirmação de presença (fila de assentos)
+  const [confirmouPresenca, setConfirmouPresenca] = useState(false);
+  const [assentoAutomatico, setAssentoAutomatico] = useState<number | null>(null);
+  const [ordemChegada, setOrdemChegada] = useState<number | null>(null);
+  // Sistema antigo removido: selectedSeat
   const [adminSection, setAdminSection] = useState<AdminSection>('dashboard');
   const [authToken, setAuthTokenState] = useState<string | null>(null);
   const [userData, setUserDataState] = useState<UserData | null>(null);
@@ -123,8 +133,12 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
       theme,
       userRole,
       setUserRole,
-      selectedSeat,
-      setSelectedSeat,
+      confirmouPresenca,
+      setConfirmouPresenca,
+      assentoAutomatico,
+      setAssentoAutomatico,
+      ordemChegada,
+      setOrdemChegada,
       adminSection,
       setAdminSection,
       isAdmin,

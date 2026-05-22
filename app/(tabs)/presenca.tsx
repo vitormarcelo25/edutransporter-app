@@ -66,6 +66,8 @@ export default function Presenca() {
   // Contadores
   const presentes = rota?.alunos.filter(a => a.presente).length || 0;
   const ausentes = (rota?.alunos.length || 0) - presentes;
+  const confirmados = rota?.alunos.filter(a => a.confirmouPresenca).length || 0;
+  const naoConfirmados = (rota?.alunos.length || 0) - confirmados;
 
   if (userRole !== 'motorista') {
     return (
@@ -126,17 +128,10 @@ export default function Presenca() {
             <View style={styles.resumoRow}>
               <View style={styles.resumoItem}>
                 <View style={[styles.resumoBadge, { backgroundColor: 'rgba(72,187,120,0.1)' }]}>
-                  <Feather name="check-circle" size={24} color="#48BB78" />
+                  <Feather name="user-check" size={24} color="#48BB78" />
                 </View>
-                <Text style={[styles.resumoNum, { color: '#48BB78' }]}>{presentes}</Text>
-                <Text style={[styles.resumoLabel, { color: theme.subtext }]}>Presentes</Text>
-              </View>
-              <View style={styles.resumoItem}>
-                <View style={[styles.resumoBadge, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
-                  <Feather name="x-circle" size={24} color="#EF4444" />
-                </View>
-                <Text style={[styles.resumoNum, { color: '#EF4444' }]}>{ausentes}</Text>
-                <Text style={[styles.resumoLabel, { color: theme.subtext }]}>Ausentes</Text>
+                <Text style={[styles.resumoNum, { color: '#48BB78' }]}>{confirmados}</Text>
+                <Text style={[styles.resumoLabel, { color: theme.subtext }]}>Confirmados</Text>
               </View>
               <View style={styles.resumoItem}>
                 <View style={[styles.resumoBadge, { backgroundColor: 'rgba(245,166,35,0.1)' }]}>
@@ -144,6 +139,13 @@ export default function Presenca() {
                 </View>
                 <Text style={[styles.resumoNum, { color: theme.gold }]}>{rota.alunos.length}</Text>
                 <Text style={[styles.resumoLabel, { color: theme.subtext }]}>Total</Text>
+              </View>
+              <View style={styles.resumoItem}>
+                <View style={[styles.resumoBadge, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
+                  <Feather name="user-x" size={24} color="#EF4444" />
+                </View>
+                <Text style={[styles.resumoNum, { color: '#EF4444' }]}>{naoConfirmados}</Text>
+                <Text style={[styles.resumoLabel, { color: theme.subtext }]}>Não Confirm.</Text>
               </View>
             </View>
           </View>
@@ -173,7 +175,23 @@ export default function Presenca() {
               </View>
               <View style={styles.alunoInfo}>
                 <Text style={[styles.alunoNome, { color: theme.text }]}>{aluno.nome}</Text>
-                <Text style={[styles.alunoParada, { color: theme.subtext }]}>{aluno.parada}</Text>
+                <View style={styles.alunoDetails}>
+                  <Text style={[styles.alunoParada, { color: theme.subtext }]}>{aluno.parada}</Text>
+                  {aluno.confirmouPresenca && (
+                    <View style={[styles.confirmadoBadge, { backgroundColor: 'rgba(72,187,120,0.15)' }]}>
+                      <Feather name="check-circle" size={10} color="#48BB78" />
+                      <Text style={[styles.confirmadoText, { color: '#48BB78' }]}>
+                        #{aluno.assentoAutomatico}
+                      </Text>
+                    </View>
+                  )}
+                  {!aluno.confirmouPresenca && (
+                    <View style={[styles.naoConfirmadoBadge, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+                      <Feather name="clock" size={10} color="#EF4444" />
+                      <Text style={[styles.naoConfirmadoText, { color: '#EF4444' }]}>Pendente</Text>
+                    </View>
+                  )}
+                </View>
               </View>
               <TouchableOpacity 
                 style={[
@@ -275,5 +293,35 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  alunoDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  confirmadoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    gap: 4,
+  },
+  confirmadoText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  naoConfirmadoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    gap: 4,
+  },
+  naoConfirmadoText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
 });
