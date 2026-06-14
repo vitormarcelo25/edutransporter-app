@@ -12,8 +12,20 @@
 // No celular (Expo Go):   http://SEU_IP:3000/api
 // Pra descobrir seu IP:   rode 'ipconfig' e pegue o IPv4 do Wi-Fi
 // Exemplo:                http://192.168.1.100:3000/api
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = 'http://localhost:8080/api';
 const USE_MOCK = false;
+
+// ==========================================
+// DADOS MESTRES - Mock (Java não tem esses endpoints)
+// ==========================================
+
+export const getCidades = (): string[] => {
+  return ['Caruaru', 'Recife', 'Garanhuns', 'Vitória de Santo Antão', 'São Lourenço da Mata'];
+};
+
+export const getInstituicoes = (cidade?: string): string[] => {
+  return ['EE Prof. João Silva', 'Colégio Dom Bosco', 'IFPE Campus Caruaru', 'Faculdade Maurício de Nassau'];
+};
 
 export interface LoginResponse {
     success: boolean;
@@ -41,7 +53,7 @@ export interface ApiError {
 type ApiResponse = LoginResponse | RegisterResponse | ApiError;
 
 // Função utilitária pra fazer requests. Usa fetch nativo pra não precisar de axios
-const apiRequest = async (endpoint: string, method: string, body?: object): Promise<ApiResponse> => {
+const apiRequest = async (endpoint: string, method: string, body?: object): Promise<any> => {
     try {
         const options: RequestInit = {
             method,
@@ -55,15 +67,12 @@ const apiRequest = async (endpoint: string, method: string, body?: object): Prom
         }
 
         const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-        const data = await response.json();
-
-        if (!response.ok) {
-            return { success: false, message: data.message || 'Erro na requisição' };
-        }
-
-        return data;
+        const text = await response.text();
+        let data: any;
+        try { data = JSON.parse(text); } catch { data = text; }
+        return { ok: response.ok, status: response.status, data };
     } catch (error) {
-        return { success: false, message: 'Erro de conexão com o servidor' };
+        return { ok: false, status: 0, data: null, networkError: true };
     }
 };
 
@@ -86,14 +95,38 @@ const mockRegister = async (data: object): Promise<RegisterResponse> => {
     });
 };
 
-// EXPORTADAS - alternam entre mock e real dependendo da config
-export const login = async (email: string, pass: string): Promise<LoginResponse> => {
-    if (USE_MOCK) {
-        return mockLogin(email, pass);
+// POST /api/aluno/login { cpf, senha } → boolean
+// POST /api/motorista/login { cpf, senha } → "Acesso permitido"
+export const login = async (email: string, pass: string, role?: string, cpf?: string): Promise<LoginResponse> => {
+    const cpfValue = cpf || email;
+    const cpfLimpo = cpfValue.replace(/\D/g, '');
+
+    if (role === 'motorista') {
+        const res = await apiRequest('/motorista/login', 'POST', { cpf: cpfLimpo, senha: pass });
+        if (res.ok) {
+            return {
+                success: true,
+                token: `token_java_${cpfLimpo}_${Date.now()}`,
+                user: { id: cpfLimpo, nome: cpfLimpo, email: '', role: 'motorista' },
+            };
+        }
+        return { success: false, message: res.data || 'Credenciais inválidas' };
     }
-    return apiRequest('/auth/login', 'POST', { email, password: pass }) as Promise<LoginResponse>;
+
+    // Aluno
+    const res = await apiRequest('/aluno/login', 'POST', { cpf: cpfLimpo, senha: pass });
+    if (res.ok && res.data === true) {
+        return {
+            success: true,
+            token: `token_java_${cpfLimpo}_${Date.now()}`,
+            user: { id: cpfLimpo, nome: cpfLimpo, email: '', role: 'aluno' },
+        };
+    }
+    return { success: false, message: 'Credenciais inválidas' };
 };
 
+// AlunoDTO: { cpf, nome, numeroCelular, senha, nomeCidade, nomeEstado, nomeFaculdade }
+// MotoristaDTO: { cpf, nome, numeroCelular, senha, carteiraConducao, nomeCidade, nomeEstado }
 export const register = async (data: {
     nome: string;
     email: string;
@@ -105,11 +138,45 @@ export const register = async (data: {
     matriculaVeiculo?: string;
     cartaConducao?: string;
     password: string;
+    cpf?: string;
 }): Promise<RegisterResponse> => {
-    if (USE_MOCK) {
-        return mockRegister(data);
+
+    const cpfLimpo = (data.cpf || data.email || '').replace(/\D/g, '');
+
+    if (data.role === 'aluno') {
+        const alunoDTO = {
+            cpf: cpfLimpo,
+            nome: data.nome,
+            numeroCelular: data.telefone,
+            senha: data.password,
+            nomeCidade: data.cidade,
+            nomeEstado: 'PE',
+            nomeFaculdade: data.escola || '',
+        };
+        const res = await apiRequest('/aluno/cadastrar', 'POST', alunoDTO);
+        if (res.ok) {
+            return { success: true, message: 'Conta criada com sucesso!', userId: cpfLimpo };
+        }
+        const msg = typeof res.data === 'string' ? res.data : 'Erro ao cadastrar';
+        return { success: false, message: msg };
     }
-    return apiRequest('/auth/register', 'POST', data) as Promise<RegisterResponse>;
+
+    // Motorista
+    const motoristaDTO = {
+        cpf: cpfLimpo,
+        nome: data.nome,
+        numeroCelular: data.telefone,
+        senha: data.password,
+        carteiraConducao: data.cartaConducao || '',
+        nomeCidade: data.cidade,
+        nomeEstado: 'PE',
+    };
+    const res = await apiRequest('/motorista/cadastrar', 'POST', motoristaDTO);
+    if (res.ok) {
+        return { success: true, message: 'Conta criada com sucesso!', userId: cpfLimpo };
+    }
+    const msg = typeof res.data === 'string' ? res.data : 'Erro ao cadastrar';
+    return { success: false, message: msg };
 };
 
 // Mantido pra compatibilidade
@@ -153,10 +220,7 @@ const mockGetHistorico = async (): Promise<HistoricoResponse> => {
 
 // Função exportada - alterna entre mock e real
 export const getHistorico = async (): Promise<HistoricoResponse> => {
-  if (USE_MOCK) {
-    return mockGetHistorico();
-  }
-  return apiRequest('/viagens/historico', 'GET') as Promise<HistoricoResponse>;
+  return mockGetHistorico();
 };
 
 // Tipos para Avisos
@@ -193,10 +257,7 @@ const mockGetAvisos = async (): Promise<AvisosResponse> => {
 
 // Função exportada - alterna entre mock e real
 export const getAvisos = async (): Promise<AvisosResponse> => {
-  if (USE_MOCK) {
-    return mockGetAvisos();
-  }
-  return apiRequest('/avisos', 'GET') as Promise<AvisosResponse>;
+  return mockGetAvisos();
 };
 
 // ==========================================
@@ -324,23 +385,19 @@ const mockUpdateGps = async (data: { rotaId: string; position: GpsPosition }): P
 
 // Funções exportadas
 export const getRotaDoDia = async (): Promise<RotaResponse> => {
-  if (USE_MOCK) return mockGetRotaDoDia();
-  return apiRequest('/rotas/hoje', 'GET') as Promise<RotaResponse>;
+  return mockGetRotaDoDia();
 };
 
 export const iniciarRota = async (rotaId: string): Promise<GpsResponse> => {
-  if (USE_MOCK) return mockIniciarRota(rotaId);
-  return apiRequest('/rotas/iniciar', 'POST', { rotaId }) as Promise<GpsResponse>;
+  return mockIniciarRota(rotaId);
 };
 
 export const encerrarRota = async (rotaId: string): Promise<GpsResponse> => {
-  if (USE_MOCK) return mockEncerrarRota(rotaId);
-  return apiRequest('/rotas/encerrar', 'POST', { rotaId }) as Promise<GpsResponse>;
+  return mockEncerrarRota(rotaId);
 };
 
 export const updateGpsPosition = async (data: { rotaId: string; position: GpsPosition }): Promise<GpsResponse> => {
-  if (USE_MOCK) return mockUpdateGps(data);
-  return apiRequest('/gps/update', 'POST', data) as Promise<GpsResponse>;
+  return mockUpdateGps(data);
 };
 
 // ==========================================
@@ -362,7 +419,53 @@ const mockMarcarPresenca = async (alunoId: string, presente: boolean): Promise<P
 
 export const marcarPresenca = async (alunoId: string, presente: boolean): Promise<PresencaResponse> => {
   if (USE_MOCK) return mockMarcarPresenca(alunoId, presente);
-  return apiRequest('/presenca/marcar', 'POST', { alunoId, presente }) as Promise<PresencaResponse>;
+  const cpfLimpo = alunoId.replace(/\D/g, '');
+  const hoje = new Date().toISOString().split('T')[0];
+  const res = await apiRequest('/presenca/marcar', 'POST', {
+    idViagem: 2,
+    cpfAluno: cpfLimpo,
+    dataViagem: hoje,
+    nomeMotorista: 'Joao Motorista',
+  });
+  if (res.ok) {
+    return { success: true, message: 'Presença confirmada!' };
+  }
+  return { success: false, message: typeof res.data === 'string' ? res.data : 'Erro ao marcar presença' };
+};
+
+// ==========================================
+// CONFIRMAR/CANCELAR PRESENÇA (usado na home)
+// ==========================================
+
+export interface ConfirmacaoResponse {
+  success: boolean;
+  message?: string;
+  assento?: string;
+  ordem?: number;
+}
+
+export const confirmarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
+  const cpfLimpo = alunoId.replace(/\D/g, '');
+  const hoje = new Date().toISOString().split('T')[0];
+  const res = await apiRequest('/presenca/marcar', 'POST', {
+    idViagem: 2,
+    cpfAluno: cpfLimpo,
+    dataViagem: hoje,
+    nomeMotorista: 'Joao Motorista',
+  });
+  if (res.ok) {
+    return { success: true, message: 'Presença confirmada!', assento: '2A', ordem: 1 };
+  }
+  return { success: false, message: typeof res.data === 'string' ? res.data : 'Erro ao confirmar presença' };
+};
+
+export const cancelarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
+  const cpfLimpo = alunoId.replace(/\D/g, '');
+  const res = await apiRequest('/presenca/desmarcar/1', 'DELETE');
+  if (res.ok) {
+    return { success: true, message: 'Presença cancelada' };
+  }
+  return { success: false, message: typeof res.data === 'string' ? res.data : 'Erro ao cancelar presença' };
 };
 
 // ==========================================
@@ -442,23 +545,19 @@ const mockAlterarSenha = async (senhaAtual: string, novaSenha: string): Promise<
 };
 
 export const getPerfil = async (): Promise<PerfilResponse> => {
-  if (USE_MOCK) return mockGetPerfil();
-  return apiRequest('/usuarios/perfil', 'GET') as Promise<PerfilResponse>;
+  return mockGetPerfil();
 };
 
 export const updatePerfil = async (data: Partial<Usuario>): Promise<PerfilUpdateResponse> => {
-  if (USE_MOCK) return mockUpdatePerfil(data);
-  return apiRequest('/usuarios/perfil', 'PUT', data) as Promise<PerfilUpdateResponse>;
+  return mockUpdatePerfil(data);
 };
 
 export const updateNotificacoes = async (config: NotificacoesConfig): Promise<PerfilUpdateResponse> => {
-  if (USE_MOCK) return mockUpdateNotificacoes(config);
-  return apiRequest('/usuarios/notificacoes', 'PUT', config) as Promise<PerfilUpdateResponse>;
+  return mockUpdateNotificacoes(config);
 };
 
 export const alterarSenha = async (senhaAtual: string, novaSenha: string): Promise<PerfilUpdateResponse> => {
-  if (USE_MOCK) return mockAlterarSenha(senhaAtual, novaSenha);
-  return apiRequest('/auth/alterar-senha', 'PUT', { senhaAtual, novaSenha }) as Promise<PerfilUpdateResponse>;
+  return mockAlterarSenha(senhaAtual, novaSenha);
 };
 
 // ==========================================
@@ -512,8 +611,7 @@ const mockGetRotasAgenda = async (): Promise<AgendaResponse> => {
 };
 
 export const getRotasAgenda = async (): Promise<AgendaResponse> => {
-  if (USE_MOCK) return mockGetRotasAgenda();
-  return apiRequest('/rotas/agenda', 'GET') as Promise<AgendaResponse>;
+  return mockGetRotasAgenda();
 };
 
 // ==========================================
@@ -550,8 +648,7 @@ const mockGetAdminDashboard = async (): Promise<AdminDashboardResponse> => {
 };
 
 export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
-  if (USE_MOCK) return mockGetAdminDashboard();
-  return apiRequest('/admin/dashboard', 'GET') as Promise<AdminDashboardResponse>;
+  return mockGetAdminDashboard();
 };
 
 // ==========================================
@@ -623,18 +720,15 @@ const mockDeleteRota = async (rotaId: string): Promise<ApiError> => {
 };
 
 export const getAdminRotas = async (): Promise<AdminRotasResponse> => {
-  if (USE_MOCK) return mockGetAdminRotas();
-  return apiRequest('/admin/rotas', 'GET') as Promise<AdminRotasResponse>;
+  return mockGetAdminRotas();
 };
 
 export const createRota = async (data: CreateRotaInput): Promise<ApiError> => {
-  if (USE_MOCK) return mockCreateRota(data);
-  return apiRequest('/admin/rotas', 'POST', data) as Promise<ApiError>;
+  return mockCreateRota(data);
 };
 
 export const deleteRota = async (rotaId: string): Promise<ApiError> => {
-  if (USE_MOCK) return mockDeleteRota(rotaId);
-  return apiRequest(`/admin/rotas/${rotaId}`, 'DELETE') as Promise<ApiError>;
+  return mockDeleteRota(rotaId);
 };
 
 // ==========================================
@@ -686,18 +780,15 @@ const mockDeleteFeriado = async (feriadoId: string): Promise<ApiError> => {
 };
 
 export const getFeriados = async (): Promise<FeriadosResponse> => {
-  if (USE_MOCK) return mockGetFeriados();
-  return apiRequest('/admin/feriados', 'GET') as Promise<FeriadosResponse>;
+  return mockGetFeriados();
 };
 
 export const createFeriado = async (data: { nome: string; data: string; motivo: string }): Promise<ApiError> => {
-  if (USE_MOCK) return mockCreateFeriado(data);
-  return apiRequest('/admin/feriados', 'POST', data) as Promise<ApiError>;
+  return mockCreateFeriado(data);
 };
 
 export const deleteFeriado = async (feriadoId: string): Promise<ApiError> => {
-  if (USE_MOCK) return mockDeleteFeriado(feriadoId);
-  return apiRequest(`/admin/feriados/${feriadoId}`, 'DELETE') as Promise<ApiError>;
+  return mockDeleteFeriado(feriadoId);
 };
 
 // ==========================================
@@ -754,11 +845,9 @@ const mockCreateConvite = async (): Promise<{ success: boolean; convite?: Convit
 };
 
 export const getConvites = async (): Promise<ConvitesResponse> => {
-  if (USE_MOCK) return mockGetConvites();
-  return apiRequest('/admin/convites', 'GET') as Promise<ConvitesResponse>;
+  return mockGetConvites();
 };
 
 export const createConvite = async (): Promise<{ success: boolean; convite?: Convite; message?: string }> => {
-  if (USE_MOCK) return mockCreateConvite();
-  return apiRequest('/admin/convites', 'POST') as Promise<{ success: boolean; convite?: Convite; message?: string }>;
+  return mockCreateConvite();
 };
