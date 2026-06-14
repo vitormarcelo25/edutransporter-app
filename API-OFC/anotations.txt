@@ -1,0 +1,49 @@
+📋 PERMISSÕES POR PERFIL - EDUTRANSPORTE
+👨‍🎓 ALUNO:
+Telas:
+• Início (home)
+• Mapa (acompanhar ônibus ao vivo)
+• Agenda (calendário das rotas)
+• Chat (comunicação da rota)
+• Perfil (configurações)
+Funcionalidades:
+• Ver informações da sua rota
+• Ver previsão de chegada
+• Acompanhar ônibus em tempo real
+• Ver cronograma de paradas
+• Reservar assento
+• Ver avisos/notícias
+• Chat com motorista e outros alunos
+• Ver histórico de viagens
+• Editar perfil e senha
+• Configurar notificações
+────────────────────────────────
+🚐 MOTORISTA:
+Telas:
+• Início (home)
+• Mapa
+• Agenda
+• Chat
+• Perfil
+• Iniciar Rota (oculta na tab)
+• Presença (oculta na tab)
+Funcionalidades:
+• Iniciar/encerrar rota
+• Ver lista de alunos da rota
+• Marcar presença dos alunos
+• Tracking GPS em tempo real
+• Ver agenda de rotas
+• Chat com alunos
+• Gerenciar perfil
+────────────────────────────────
+👨‍💼 ADMIN:
+Telas:
+• Painel Administrativo completo
+Funcionalidades:
+• Dashboard com estatísticas
+• Gerenciar rotas (CRUD)
+• Gerenciar avisos (CRUD)
+• Gerenciar feriados (CRUD)
+• Gerenciar usuários (CRUD)
+• Gerar códigos de convite
+• Ver todos os alunos/motoristas
