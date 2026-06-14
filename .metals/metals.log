@@ -8834,3 +8834,4 @@
 2026.06.14 16:52:41 INFO  Created report: Optional[file:///C:/Users/vitorsantana/edutransporte/API-OFC/src/main/java/io/github/David_Rn01/API_OFC/config/WebSocketConfig.java]
 2026.06.14 16:52:41 INFO  QDox parse error in file:///C:/Users/vitorsantana/edutransporte/API-OFC/src/main/java/io/github/David_Rn01/API_OFC/config/WebSocketConfig.java (full report at: "C:\Users\vitorsantana\edutransporte\.metals\.reports\metals-full\2026-06-14\r_qdox-error_(API_5fOFC)_16-52-41-347.md")
 2026.06.14 16:52:41 WARN  Using H2 2.4.240 which is newer than the version Flyway has been verified with. The latest verified version of H2 is 2.3.232.
+2026.06.14 16:53:14 INFO  time: indexed workspace in 36s
