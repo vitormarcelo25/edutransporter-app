@@ -1,0 +1,166 @@
+================================================================================
+                    DOCUMENTACAO DE TELA - MAPA (GPS / GEOFRENCIA)
+                          EduTransporter v10.1.0
+================================================================================
+
+Arquivo: app/(tabs)/mapa.tsx
+Tipo: Tela do sistema de abas (tabs)
+
+================================================================================
+1. VISAO GERAL
+================================================================================
+
+Tela de mapa interativo com:
+- Visualizacao da posicao GPS do onibus em tempo real
+- Geofencing: raio de 200m ao redor da parada mais proxima
+- Cores dinamicas conforme distancia do onibus a parada
+- Lista de paradas com distancia e tempo estimado
+- Botao de centros na posicao atual
+- Status da conexao GPS
+
+================================================================================
+2. COMPONENTES DA INTERFACE
+================================================================================
+
+Header:
+- Botao voltar -> volta para home
+- Titulo "Mapa"
+- Botao de filtros (sliders) -> abre painel de filtros
+
+Mapa (MapView do expo-location):
+- Marcador de posicao do onibus (icone bus, amarelo)
+- Marcadores de paradas (icone map-pin)
+- Circulo de geofencing (raio 200m, transparente)
+- Regiao inicial: Sao Paulo (-23.5505, -46.6333)
+
+Painel de Filtros:
+- Filtro por escola (multi-select)
+- Filtro por horario (intervalo)
+- Botao "Aplicar filtros"
+- Botao "Limpar"
+
+Painel de Paradas (Parte inferior):
+- Lista de paradas da rota do dia
+- Card com nome da parada, distancia em metros, tempo estimado
+- Cor do card conforme proximidade:
+  * Verde (#48BB78): dentro do raio (<= 200m)
+  * Amarelo (#F5A623): proximo (200-500m)
+  * Vermelho (#EF4444): longe (> 500m)
+- Indicador de geofencing (dentro/fora do raio)
+
+Botoes:
+- "Centro no mapa" (icone crosshair) -> centraliza na posicao do onibus
+- Status de conexao GPS (ponto verde/vermelho)
+
+================================================================================
+3. CHAMADAS A API / SERVICOS
+================================================================================
+
+Servicos importados (services/api.ts):
+- getRotaDoDia()              -> GET /api/viagem/rota-do-dia -> mock
+- updateGpsPosition(data)     -> POST /api/gps/update        -> mock
+- getGpsPositions(rotaId)     -> GET /api/gps/positions/:id  -> mock
+- getPresencaResumo()         -> GET /api/presenca/resumo    -> mock
+
+Servicos de localizacao (expo-location):
+- Location.requestForegroundPermissionsAsync() -> permissao GPS
+- Location.watchPositionAsync() -> tracking continuo (intervalo 5s)
+- Accuracy.Balanced -> precisao balanceada
+
+Detalhes:
+
+  getRotaDoDia()
+  - Mesmo endpoint da Home
+  - Retorna paradas (alunos com coordenadas lat/lng simuladas)
+
+  updateGpsPosition({ rotaId, position: { latitude, longitude, timestamp } })
+  - POST /api/gps/update
+  - Java: salva em memoria (gpsPositions HashMap) - NAO persiste no MySQL
+  - Mock: retorna { success: true }
+  - Enviado a cada 5 segundos
+
+  getGpsPositions(rotaId)
+  - GET /api/gps/positions/:rotaId
+  - Java: retorna HashMap de posicoes em memoria
+  - Mock: retorna posicao simulada em movimento
+
+  Geofencing logic (no frontend):
+  - Calcula distancia Haversine entre onibus e cada parada
+  - Raio de geofencing: 200 metros
+  - Se dentro do raio: cor verde, musica de alerta (futuro)
+  - Se fora: cor amarela/vermelha conforme distancia
+
+================================================================================
+4. TABELAS DO BANCO DE DADOS (MySQL via Java)
+================================================================================
+
+NENHUMA TABELA PERSISTE GPS NO MYSQL ATUALMENTE.
+
+O Java salva posicoes apenas em memoria:
+  private final Map<Long, GpsPosition> gpsPositions = new HashMap<>();
+
+Para cloud, sera necessario criar:
+
+Tabela: gps_posicao (nova)
+- id (BIGINT PK, auto-increment)
+- viagem_id (BIGINT FK -> viagem.id)
+- latitude (DOUBLE)
+- longitude (DOUBLE)
+- timestamp (BIGINT) - epoch milliseconds
+- created_at (TIMESTAMP)
+
+Tabela: parada (nova, opcional)
+- id (BIGINT PK, auto-increment)
+- nome (VARCHAR)
+- latitude (DOUBLE)
+- longitude (DOUBLE)
+- viagem_id (BIGINT FK -> viagem.id)
+- ordem (INT) - ordem na rota
+
+Tabela: viagem (existente)
+- id, nome, escola, horario, tipo, data, status, motorista_id,
+  inicio_timestamp, fim_timestamp
+
+Tabela: aluno (existente)
+- id, nome, ..., viagem_id
+
+================================================================================
+5. VALIDACOES / REGRAS DE NEGOCIO
+================================================================================
+
+- Permissao de localizacao obrigatoria para tracking GPS
+- Sem permissao: usa coordenadas simuladas (Sao Paulo)
+- Tracking envia posicao a cada 5 segundos
+- Geofencing: raio fixo de 200 metros
+- Cores atualizadas em tempo real conforme movimento
+- Distancia calculada via formula de Haversine
+- Paradas ordenadas por ordem de visita na rota
+
+================================================================================
+6. FLUXO DE NAVEGACAO
+================================================================================
+
+1. Usuario clica "Ver no Mapa" (Home) -> navega para aba Mapa
+2. Mapa carrega e solicita permissao de localizacao
+3. Se motorista com rota ativa: tracking GPS inicia automaticamente
+4. Se aluno: visualiza posicao do onibus e distancia ate parada
+5. Botao "Centro" centraliza mapa na posicao do onibus
+6. Botao "Voltar" -> volta para Home
+7. Filtros permitem filtrar por escola e horario
+
+================================================================================
+7. MIGRACAO PARA CLOUD - CHECKLIST
+================================================================================
+
+[ ] Criar tabela "gps_posicao" para persistir coordenadas no cloud
+[ ] Criar tabela "parada" com coordenadas das paradas fixas
+[ ] Criar API: POST /api/gps/update (salvar posicao no cloud DB)
+[ ] Criar API: GET /api/gps/positions/:viagemId (ultima posicao)
+[ ] Criar API: GET /api/paradas/:viagemId (paradas da rota)
+[ ] Definir coordenadas reais das paradas no cloud
+[ ] Considerar usar Redis para cache de posicoes (performance)
+[ ] Avaliar uso de WebSocket para atualizacao em tempo real
+[ ] Configurar precisao do GPS (Balanced vs HighAccuracy)
+[ ] Adicionar stale para posicoes antigas (> 60s sem update)
+
+================================================================================

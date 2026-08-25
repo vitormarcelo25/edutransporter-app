@@ -1,0 +1,154 @@
+================================================================================
+                    DOCUMENTACAO DE TELA - ADMIN (PAINEL ADMINISTRATIVO)
+                          EduTransporter v10.1.0
+================================================================================
+
+Arquivo: app/admin/index.tsx
+Tipo: Tela fora do sistema de abas (area administrativa)
+
+================================================================================
+1. VISAO GERAL
+================================================================================
+
+Dashboard administrativo com visao geral do sistema. Exibe:
+- Estatisticas do sistema (alunos, motoristas, rotas, avisos)
+- Menu de gerenciamento com 5 opcoes
+- Botao de logout
+
+================================================================================
+2. COMPONENTES DA INTERFACE
+================================================================================
+
+Header:
+- Botao voltar
+- Icone escudo (shield-alt, roxo #9F7AEA)
+- Titulo "Painel Admin"
+- Botao logout (icone log-out, vermelho)
+
+Secao "Visao Geral" (Stats Grid):
+- Grid 2x2 com cards de estatisticas:
+  * Alunos (icone user-graduate, azul #4299E1) - stats.totalAlunos
+  * Motoristas (icone bus, verde #48BB78) - stats.totalMotoristas
+  * Rotas Ativas (icone route, amarelo) - stats.totalRotasAtivas
+  * Avisos (icone bell, roxo #9F7AEA) - stats.totalAvisos
+- Cada card: icone em circulo, numero grande (26px bold), label
+
+Secao "Gerenciamento" (Menu):
+- 5 itens de menu, cada um com:
+  * Icone colorido em fundo transparente
+  * Titulo (15px bold)
+  * Subtitulo descritivo (12px)
+  * Seta "chevron-right"
+  * Click navega para rota correspondente
+
+Itens do Menu:
+1. Gerenciar Rotas (icone route, verde #48BB78) -> /admin/gerenciar-rotas
+2. Gerenciar Avisos (icone bell, amarelo #F5A623) -> /admin/gerenciar-avisos
+3. Feriados (icone calendar, roxo #9F7AEA) -> /admin/gerenciar-feriados
+4. Usuarios (icone users, azul #4299E1) -> /admin/gerenciar-usuarios
+5. Gerar Convites (icone key, vermelho #EF4444) -> /admin/gerar-convites
+
+================================================================================
+3. CHAMADAS A API / SERVICOS
+================================================================================
+
+Servicos importados (services/api.ts):
+- getAdminDashboard()           -> GET /api/admin/dashboard -> mock
+
+Servicos de contexto:
+- useApp() -> theme, clearAuth
+
+Detalhes:
+
+  getAdminDashboard()
+  - GET /api/admin/dashboard  (Java backend)
+  - Java: AdminController.dashboard()
+  - Mock: retorna stats hardcoded:
+    {
+      totalAlunos: 45,
+      totalMotoristas: 8,
+      totalRotasAtivas: 12,
+      totalAvisos: 3
+    }
+  - Retorna: { success: boolean, stats?: AdminStats }
+
+  AdminStats interface:
+  - totalAlunos: number
+  - totalMotoristas: number
+  - totalRotasAtivas: number
+  - totalAvisos: number
+
+================================================================================
+4. TABELAS DO BANCO DE DADOS (MySQL via Java)
+================================================================================
+
+Estatisticas derivadas de tabelas existentes:
+
+totalAlunos:
+  SELECT COUNT(*) FROM aluno
+
+totalMotoristas:
+  SELECT COUNT(*) FROM motorista
+
+totalRotasAtivas:
+  SELECT COUNT(*) FROM viagem WHERE status = 'em_andamento' AND data = CURDATE()
+
+totalAvisos:
+  SELECT COUNT(*) FROM aviso WHERE ativo = true
+
+Tabelas utilizadas:
+- aluno (id, nome, cpf, ...)
+- motorista (id, nome, cpf, ...)
+- viagem (id, nome, status, data, ...)
+- aviso (id, titulo, ativo, ...)
+
+Sub-rotas do admin (nao implementadas no Java, mockadas):
+- /admin/gerenciar-rotas -> CRUD de rotas
+- /admin/gerenciar-avisos -> CRUD de avisos
+- /admin/gerenciar-feriados -> CRUD de feriados
+- /admin/gerenciar-usuarios -> CRUD de usuarios
+- /admin/gerar-convites -> geracao de codigos de convite
+
+================================================================================
+5. VALIDACOES / REGRAS DE NEGOCIO
+================================================================================
+
+- Apenas usuarios com perfil "admin" devem acessar (nao implementado)
+- Dashboard carrega dados ao montar componente (useEffect)
+- Loading spinner durante carregamento
+- Logout com confirmacao (Alert dialog)
+- Stats atualizadas a cada acesso ao dashboard
+
+================================================================================
+6. FLUXO DE NAVEGACAO
+================================================================================
+
+1. Admin acessa /admin/index (via link ou notificacao)
+2. Dashboard carrega stats via getAdminDashboard()
+3. Stats aparecem no grid 2x2
+4. Admin clica em um item do menu -> navega para sub-rota
+5. Botao "Voltar" -> volta para tela anterior
+6. Botao "Sair" -> confirmacao -> clearAuth() -> / (login)
+
+================================================================================
+7. MIGRACAO PARA CLOUD - CHECKLIST
+================================================================================
+
+[ ] Criar API: GET /api/admin/dashboard (estatisticas agregadas)
+[ ] Criar middleware de autenticacao: verificar perfil "admin"
+[ ] Criar API: GET /api/admin/rotas (listar todas as rotas)
+[ ] Criar API: POST/PUT/DELETE /api/admin/rotas/:id (CRUD rotas)
+[ ] Criar API: GET /api/admin/avisos (listar todos os avisos)
+[ ] Criar API: POST/PUT/DELETE /api/admin/avisos/:id (CRUD avisos)
+[ ] Criar API: GET /api/admin/feriados (listar feriados)
+[ ] Criar API: POST/PUT/DELETE /api/admin/feriados/:id (CRUD feriados)
+[ ] Criar API: GET /api/admin/usuarios (listar todos os usuarios)
+[ ] Criar API: PUT /api/admin/usuarios/:id (editar usuario)
+[ ] Criar API: DELETE /api/admin/usuarios/:id (desativar usuario)
+[ ] Criar API: POST /api/admin/convites (gerar codigo de convite)
+[ ] Criar tabela "convite" (codigo, admin_id, usado, expira_em)
+[ ] Adicionar JWT com claim "role: admin"
+[ ] Adicionar rate limiting nas rotas admin
+[ ] Criar log de auditoria para acoes admin
+
+================================================================================

@@ -1,0 +1,143 @@
+============================================================
+# DOCUMENTAÇÃO DA TELA DE LOGIN - EduTransporter
+============================================================
+
+1. ARQUIVO E LOCALIZAÇÃO
+   - Arquivo: app/(auth)/index.tsx
+   - Rota: /(auth) (grupo de auth, protege telas posteriores)
+   - Dependências: services/api.ts (função login()), contexts/AppContext.tsx,
+     components/ui/ (estilizados)
+
+2. ELEMENTOS DA INTERFACE (UI)
+   - Componente: Tipo de Usuário | Tipo: RadioGroup/Toggle | value='aluno' |motorista' | Alterna entre os dois papéis
+   - Componente: CPF | Tipo: TextInput | text, keyboardType='phone-pad' | Máscara opcional: apenas números
+   - Componente: Senha | Tipo: TextInput | secureTextEntry=true, textContentType='password' | Campo oculto
+   - Componente: Botão Login | Tipo: Button | disabled={!cpf && senha} | Submete o formulário
+   - Componente: Link Cadastro | Tipo: Text | onPress={() => navigation.navigate('Registro')} | Redireciona para registo.tsx
+   - Componente: Animação | Tipo: Lottie/View | - | Cenário noturno: ônibus, estrelas, nuvens
+
+3. LÓGICA DE AUTENTICAÇÃO
+   - Função principal: handleLogin(cpf, senha, role)
+   - 1. Validação de campos vazios
+     * Se !cpf.trim() || !senha.trim() → Alerta: "Preencha CPF e senha"
+   - 2. Chamada API (via services/api.ts)
+     * const response = await login(role, cpf.replace(/\D/g, ''), senha)
+   - 3. Tratamento de resposta
+     * Se response.success && response.token →
+       - SecureStore.setItem('token', response.token)
+       - AppContext.setAuth(token, user, role)
+       - navigation.navigate('Home')
+     - Se !response.success → Alerta: response.message || "Credenciais inválidas"
+
+4. FLUXO DE DADOS COMPLETO
+   - [TELA] Usuário digita CPF + Senha
+            ↓
+   [TELA] Usuário seleciona Aluno/Motorista
+            ↓
+   [BOTÃO] Pressione Login
+            ↓
+   [VALIDAÇÃO] Campos obrigatórios preenchidos?
+      ├─ Não → Alerta: "Preencha CPF e senha"
+      └─ Sim → ↓
+   [API] login(role, cpfLimpo, senha)
+            ↓
+   [JAVA BACKEND] Valida CPF + hash no MySQL
+            ↓
+   [SUCESSO] Retorna: {success: true, token, user}
+            ↓
+   [FRONTEND] SecureStore.setItem('token', token)
+            ↓
+   [CONTEXT] AppContext.setAuth(token, user, role)
+            ↓
+   [NAVEGAÇÃO] home.tsx (telas principais)
+            ↓
+   [FALHA] Retorna: {success: false, message}
+            ↓
+   [FRONTEND] Alerta: "CPF ou senha inválidos"
+
+5. TABELAS DO BANCO DE DADOS
+   TABELA aluno:
+   - cpf: VARCHAR(14) PRIMARY KEY
+   - senha: VARCHAR(255) NOT NULL (hash bcrypt)
+   - nome: VARCHAR(50) NULL
+   - numero_celular: VARCHAR(17) NULL
+   - cidade_id: INT MUL FK → cidade.id
+   - faculdade_id: INT MUL FK → faculdade.id
+
+   TABELA motorista:
+   - cpf: VARCHAR PRIMARY KEY
+   - senha: VARCHAR(255) NOT NULL (hash bcrypt)
+   - nome: VARCHAR(50) NULL
+   - numero_celular: VARCHAR(17) NULL
+   - carteira_conducao: VARCHAR NULL
+   - cidade_id: INT MUL FK → cidade.id
+
+   Dados de teste (já inseridos via init-dados.sql):
+   - aluno: CPF 71409312060, senha hash $2b$12$..., nome Vitor Teste
+   - motorista: CPF 11122233344, senha hash $2b$12$..., nome Motorista Teste
+
+   Script SQL de inserção:
+   INSERT INTO aluno (cpf, nome, numero_celular, senha, cidade_id, faculdade_id) 
+   VALUES ('71409312060', 'Vitor Teste', '48999999999', 
+     '$2b$12$2r82vbqJVrlFi0YKRoUD0.DLM3izVIQnkr4XB2SOocJaPUnoWVV2a', 1, 1);
+   INSERT INTO motorista (cpf, nome, numero_celular, senha, carteira_conducao, cidade_id) 
+   VALUES ('11122233344', 'Motorista Teste', '48988888888', 
+     '$2b$12$2r82vbqJVrlFi0YKRoUD0.DLM3izVIQnkr4XB2SOocJaPUnoWVV2a', '12345678900', 1);
+
+6. VALIDAÇÕES NO FRONTEND
+   | Validação          | Condição                    | Mensagem              |
+   |-----------------------------------------------------------|
+   | CPF vazio          | !cpf.trim()                 | "Preencha CPF e senha" |
+   | Senha vazia        | !senha.trim()               | "Preencha CPF e senha" |
+   | CPF inválido       | cpf.replace(/\D/g, '').length !== 11 | "CPF deve ter 11 dígitos" |
+   | Senha curta        | senha.length < 6            | "Senha deve ter no mínimo 6 caracteres" |
+
+7. ERROS POSSÍVEIS E SUAS CAUSAS
+   | Erro Frontend      | Causa no Backend            | Solução                  |
+   |-----------------------------------------------------------|
+   | "Credenciais inválidas" | CPF/senha não conferem com hash | Verificar existência do usuário |
+   | "Network Error"    | Backend não está na porta 8080 | Verificar API_BASE_URL   |
+   | "Token não gerado" | success: false sem token    | Verificar credenciais    |
+
+8. CHECKLIST DE IMPLEMENTAÇÃO
+   BACKEND (Java Spring Boot):
+   - [ ] Controlador AlunoController.login() → POST /api/aluno/login
+   - [ ] Controlador MotoristaController.login() → POST /api/motorista/login
+   - [ ] Serviço AlunoService.autenticar(cpf, senha) com BCrypt
+   - [ ] Serviço MotoristaService.autenticar(cpf, senha) com BCrypt
+   - [ ] Configuração Bcrypt (dependency + PasswordEncoder)
+
+   BANCO DE DADOS (MySQL):
+   - [ ] Tabela aluno criada com campos acima
+   - [ ] Tabela motorista criada com estrutura acima
+   - [ ] Hash bcrypt da senha 123456 inserido
+   - [ ] Usuário teste: CPF 71409312060 / 123456 (aluno)
+   - [ ] Usuário teste: CPF 11122233344 / 123456 (motorista)
+
+   FRONTEND (já está pronto - verificação):
+   - [ ] services/api.ts tem função login() funcionando
+   - contexts/AppContext.tsx tem setAuth(token, user, role)
+   - expo-secure-store instalado e configurado
+   - Tela app/(auth)/index.tsx tem campos e botão
+   - Navegação para home.tsx após login bem-sucedido
+
+9. PRÓXIMOS PASSOS DOCUMENTAÇÃO
+   Próximo documento: Tela de Cadastro (app/(auth)/registo.tsx)
+   - Campos: nome, CPF/email, telefone, cidade, instituição/escola, role
+   - Validações por role (aluno/motorista)
+   - API /api/aluno/cadastrar ou /api/motorista/cadastrar
+   - Hash bcrypt gerado/validado
+   - Redirecionamento + login automático após cadastro
+
+============================================================
+# RESUMO PARA COPIAR
+============================================================
+Tela de Login - EduTransporter:
+- Arquivo: app/(auth)/index.tsx
+- APIs: POST /api/aluno/login e POST /api/motorista/login
+- Bancos: Tabelas aluno e motorista com senha em hash bcrypt
+- Usuário teste: CPF 71409312060 / 123456 (aluno) | CPF 11122233344 / 123456 (motorista)
+- Fluxo: Digitar CPF + Senha → Selecionar papel → Login → SecureStore → home
+- Falha: Alerta "CPF ou senha inválidos"
+- Próximo: Tela de Cadastro (registo.tsx)
+============================================================

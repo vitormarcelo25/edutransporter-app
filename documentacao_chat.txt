@@ -1,0 +1,131 @@
+================================================================================
+                    DOCUMENTACAO DE TELA - CHAT (MENSAGENS)
+                          EduTransporter v10.1.0
+================================================================================
+
+Arquivo: app/(tabs)/chat.tsx
+Tipo: Tela do sistema de abas (tabs)
+
+================================================================================
+1. VISAO GERAL
+================================================================================
+
+Chat em grupo da rota (ex: "Grupo ORE 3"). Funcionalidade basica de mensagens:
+- Lista de mensagens com bubbles (enviado/recebido)
+- Input de texto com botao de enviar
+- Exclusao de proprias mensagens (long press)
+- Mensagens hardcoded (mock total, sem backend)
+
+================================================================================
+2. COMPONENTES DA INTERFACE
+================================================================================
+
+Header:
+- Botao voltar -> volta para home
+- Titulo do grupo: "Grupo ORE 3"
+- Subtitulo: "Ativo agora"
+- Botao info (i) -> detalhes do grupo (nao implementado)
+
+Lista de Mensagens (FlatList):
+- Bubble de mensagem (enviada):
+  * Fundo amarelo (#F5A623)
+  * Texto escuro (#1A253A)
+  * Alinhamento: direita
+  * Borda inferior direita arredondada (4px)
+- Bubble de mensagem (recebida):
+  * Fundo escuro (#233248) com borda (#37474F)
+  * Texto branco (#FFF)
+  * Alinhamento: esquerda
+  * Borda inferior esquerda arredondada (4px)
+  * Nome do remetente em amarelo (#F5A623)
+- Hora da mensagem (10px, canto inferior direito da bubble)
+
+Input de Mensagem:
+- TextInput arredondado (borda 24px)
+- Placeholder: "Escreve uma mensagem..."
+- Botao enviar (icone send):
+  * Ativo (com texto): fundo amarelo
+  * Desativo (sem texto): fundo cinza (#374748)
+
+================================================================================
+3. CHAMADAS A API / SERVICOS
+================================================================================
+
+Servicos importados:
+- NENHUM servico de API e chamado
+
+Mensagens sao gerenciadas inteiramente no estado local (useState).
+Nao ha conexao com backend para mensagens.
+
+Mensagens hardcoded iniciais:
+1. "Bom dia! O autocarro ja saiu da garagem." - Carlos (Motorista) - 07:00
+2. "Otimo, obrigado pelo aviso!" - Eu - 07:05
+3. "Vou estar na paragem em 5 minutos." - Eu - 07:06
+
+Funcoes internas:
+- sendMessage(): adiciona nova mensagem ao estado local
+- deleteMessage(id): remove mensagem pelo id (apenas proprias)
+- renderMessage(): renderiza bubble com estilo correto
+
+================================================================================
+4. TABELAS DO BANCO DE DADOS (MySQL via Java)
+================================================================================
+
+NENHUMA TABELA EXISTE PARA CHAT.
+
+Para cloud, sera necessario criar:
+
+Tabela: mensagem (nova)
+- id (BIGINT PK, auto-increment)
+- texto (TEXT)
+- remetente_id (BIGINT FK -> aluno.id ou motorista.id)
+- remetente_nome (VARCHAR)
+- grupo_rota (VARCHAR) - ex: "ORE 3"
+- created_at (TIMESTAMP)
+- deletado (BOOLEAN, default false)
+
+Tabela: grupo_chat (nova, opcional)
+- id (BIGINT PK, auto-increment)
+- nome (VARCHAR) - ex: "Grupo ORE 3"
+- rota_id (BIGINT FK -> viagem.id)
+
+================================================================================
+5. VALIDACOES / REGRAS DE NEGOCIO
+================================================================================
+
+- Mensagem vazia nao e enviada (trim === '')
+- Apenas o autor pode excluir sua propria mensagem
+- Exclusao com confirmacao (Alert)
+- Long press (500ms) ativa opcao de excluir
+- Scroll automatico para baixo quando nova mensagem chega
+- Horario formatado como HH:MM (pt-BR)
+- Id da mensagem: timestamp em milissegundos
+
+================================================================================
+6. FLUXO DE NAVEGACAO
+================================================================================
+
+1. Usuario clica em "Chat" (Home) -> navega para aba Chat
+2. Chat carrega com 3 mensagens hardcoded
+3. Usuario digita mensagem e clica enviar
+4. Mensagem aparece na lista (bubble amarela, alinhada a direita)
+5. Para excluir: long press na propria mensagem -> confirmacao -> remove
+6. Botao "Voltar" -> volta para Home
+
+================================================================================
+7. MIGRACAO PARA CLOUD - CHECKLIST
+================================================================================
+
+[ ] Criar tabela "mensagem" no cloud
+[ ] Criar API: POST /api/mensagem (enviar mensagem)
+[ ] Criar API: GET /api/mensagens/:grupoRota (listar mensagens)
+[ ] Criar API: DELETE /api/mensagem/:id (excluir mensagem - soft delete)
+[ ] Adicionar WebSocket ou polling para mensagens em tempo real
+[ ] Implementar "digitando..." indicator
+[ ] Adicionar suporte a imagens/arquivos (futuro)
+[ ] Implementar historico de mensagens (paginacao)
+[ ] Adicionar autenticacao JWT
+[ ] Considerar uso de Firebase Realtime Database ou Supabase Realtime
+[ ] Criar tabela "grupo_chat" e vincular a viagens
+
+================================================================================

@@ -1,0 +1,153 @@
+================================================================================
+                    DOCUMENTACAO DE TELA - PRESENCA (MOTORISTA)
+                          EduTransporter v10.1.0
+================================================================================
+
+Arquivo: app/(tabs)/presenca.tsx
+Tipo: Tela do sistema de abas (tabs)
+
+================================================================================
+1. VISAO GERAL
+================================================================================
+
+Tela de gestao de presenca para MOTORISTOS. Exibe:
+- Resumo de presenca (confirmados, total, nao confirmados)
+- Lista de alunos da rota do dia
+- Botao toggle para marcar/desmarcar presenca de cada aluno
+- Apenas motoristas podem acessar (alunos veem mensagem de restricao)
+
+================================================================================
+2. COMPONENTES DA INTERFACE
+================================================================================
+
+Header:
+- Botao voltar
+- Titulo "Presenha"
+
+Para aluno (acesso negado):
+- Icone alert-circle (amarelo)
+- Mensagem: "Apenas motoristas podem marcar presenca"
+
+Para motorista:
+Card de Resumo:
+- 3 badges com contadores:
+  * Confirmados (verde #48BB78): alunos com confirmouPresenca = true
+  * Total (amarelo #F5A623): total de alunos na rota
+  * Nao Confirmados (vermelho #EF4444): total - confirmados
+
+Secao "Lista de Alunos":
+- Subtitulo: "Toque para marcar presenca"
+- Cards de aluno (por cada aluno da rota):
+  * Avatar com inicial do nome (circulo)
+  * Nome do aluno
+  * Parada (endereco/ponto)
+  * Badge de confirmacao:
+    - Verde "check-circle" + numero do assento: confirmou
+    - Vermelho "clock" + "Pendente": nao confirmou
+  * Botao toggle (circulo 44x44):
+    - Verde (#48BB78) com check: presente
+    - Vermelho (#EF4444) com X: ausente
+  * Loading indicator (ActivityIndicator) durante salvamento
+
+================================================================================
+3. CHAMADAS A API / SERVICOS
+================================================================================
+
+Servicos importados (services/api.ts):
+- getRotaDoDia()                        -> GET /api/viagem/rota-do-dia -> mock
+- marcarPresenca(alunoId, novoStatus)   -> POST /api/presenca         -> mock
+
+Detalhes:
+
+  getRotaDoDia()
+  - GET /api/viagem/rota-do-dia
+  - Java: ViagemController.rotaDoDia()
+  - Retorna rota com lista de alunos e status de presenca
+  - Mock: retorna rota hardcoded com 5 alunos
+
+  marcarPresenca(alunoId: string, novoStatus: boolean)
+  - POST /api/presenca
+  - Java: PresencaController.marcar()
+    - Body: { alunoId, presente }
+    - LOGICA JAVA BUGADA: cria novo registro OU deleta o ALUNO (nao a presenca)
+    - PresencaService.desmarcar() faz alunoRepository.deleteById() ao inves de presencaRepository
+  - Mock: retorna { success: true, message: 'Presenca marcada com sucesso!' }
+  - Retorna: { success: boolean, message?: string }
+
+  Funcoes auxiliares:
+- loadRota(): carrega rota e seus alunos
+- handleTogglePresenca(alunoId): alterna status presente/ausente
+- Contadores: presentes, ausentes, confirmados, naoConfirmados
+
+================================================================================
+4. TABELAS DO BANCO DE DADOS (MySQL via Java)
+================================================================================
+
+Tabela: presenca
+- id (BIGINT PK, auto-increment)
+- aluno_id (BIGINT FK -> aluno.id)
+- viagem_id (BIGINT FK -> viagem.id)
+- presente (BOOLEAN) - status de presenca do dia
+- data (DATE)
+
+Tabela: aluno
+- id (BIGINT PK, auto-increment)
+- nome (VARCHAR)
+- viagem_id (BIGINT FK -> viagem.id)
+- confirmou_presenca (BOOLEAN) - se o aluno confirmou presenca pelo app
+- ... (outras colunas)
+
+Tabela: viagem
+- id (BIGINT PK, auto-increment)
+- nome (VARCHAR)
+- ... (outras colunas)
+
+BUG JAVA CONHECIDO:
+- PresencaService.desmarcar() deleta o ALUNO ao inves da PRESENCA
+- Correcao necessaria: usar presencaRepository.delete(presenca)
+  ao inves de alunoRepository.deleteById(alunoId)
+
+================================================================================
+5. VALIDACOES / REGRAS DE NEGOCIO
+================================================================================
+
+- Apenas motoristas podem acessar esta tela
+- Alunos veem mensagem de restricao
+- Toggle presenca atualiza estado local imediatamente (optimistic update)
+- Em caso de erro na API, estado local NAO e revertido
+- Loading indicator aparece por aluno individual durante salvamento
+- Botoes desabilitados durante salvamento (salvando !== null)
+- Confirmacao e separada de presenca:
+  * confirmouPresenca: aluno confirmou pelo app
+  * presente: motorista marcou no onibus
+
+================================================================================
+6. FLUXO DE NAVEGACAO
+================================================================================
+
+1. Motorista clica em "Presenca" (Home ou Iniciar Rota) -> navega para /presenca
+2. Tela carrega e verifica se userRole === 'motorista'
+3. Se aluno: mostra mensagem de restricao e volta
+4. Se motorista: carrega rota do dia via getRotaDoDia()
+5. Lista de alunos aparece com status atual
+6. Motorista toca no aluno ou no botao toggle -> alterna presenca
+7. Chamada marcarPresenca() e feita ao backend
+8. Em caso de sucesso: card atualiza visualmente
+9. Botao "Voltar" -> volta para tela anterior
+
+================================================================================
+7. MIGRACAO PARA CLOUD - CHECKLIST
+================================================================================
+
+[ ] Criar API: GET /api/presenca/rota-do-dia (alunos + presenca)
+[ ] Criar API: POST /api/presenca/marcar (alunoId, presente)
+[ ] Criar API: DELETE /api/presenca/desmarcar (alunoId) - CORRIGIR BUG JAVA
+[ ] Corrigir logica de desmarcar: deletar presenca, NAO aluno
+[ ] Adicionar validacao server-side: apenas motorista da rota pode marcar
+[ ] Adicionar campo data para filtrar presencas por dia
+[ ] Criar trigger para atualizar confirmou_presenca no app
+[ ] Adicionar autenticacao JWT
+[ ] Considerar adicionar horario da marcacao (audit log)
+[ ] Adicionar protecao contra marcar presenca fora do horario da rota
+
+================================================================================

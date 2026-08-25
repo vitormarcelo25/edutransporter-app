@@ -1,0 +1,136 @@
+================================================================================
+                    DOCUMENTACAO DE TELA - PERFIL (CONFIGURACOES)
+                          EduTransporter v10.1.0
+================================================================================
+
+Arquivo: app/(tabs)/perfil.tsx
+Tipo: Tela do sistema de abas (tabs)
+
+================================================================================
+1. VISAO GERAL
+================================================================================
+
+Tela de configuracoes e perfil do usuario. Exibe:
+- Informacoes do usuario (nome, cargo)
+- Secao: Conta & Privacidade (Dados pessoais, Notificacoes, Seguranca)
+- Secao: Aparencia (Dark Mode toggle)
+- Secao: Suporte (Central de Ajuda, Termos e Privacidade)
+- Secao: Sair da Conta
+- Imagem de fundo com overlay
+
+================================================================================
+2. COMPONENTES DA INTERFACE
+================================================================================
+
+Header:
+- Titulo "Meu Perfil"
+
+Imagem de Fundo:
+- assets/plano-de-fundo-perfil.png
+- Overlay escuro (dark mode) ou claro (light mode)
+
+Profile Box:
+- Nome do usuario (via userData?.nome ou "Aluno"/"Motorista")
+- Subtitulo: "Aluno da Rota ORE 3" ou "Motorista do ORE 3"
+- Botao "Editar Perfil" (badge)
+
+Secao Conta & Privacidade:
+- Dados Pessoais (icone user, azul #3182CE) -> /dados-pessoais
+- Notificacoes (icone bell, verde #48BB78) -> /notificacoes
+- Seguranca e Senha (icone shield, roxo #9F7AEA) -> /seguranca
+
+Secao Aparencia:
+- Modo Escuro (Dark Mode) - Switch toggle
+  * Icone: moon (escuro) ou sun (claro)
+  * Cor do switch: amarelo (#F5A623) quando ativo
+
+Secao Suporte:
+- Central de Ajuda (icone help-buoy, laranja #ED8936) -> /ajuda
+- Termos e Privacidade (icone info, cinza) -> /termos
+
+Secao Sair:
+- Sair da Conta (icone log-out, vermelho #EF4444)
+  * Chama clearAuth() do contexto
+  * Navega para / (tela de login)
+
+================================================================================
+3. CHAMADAS A API / SERVICOS
+================================================================================
+
+Servicos importados (via useApp context):
+- isDark: boolean -> estado do tema escuro
+- toggleTheme: () => void -> alterna tema claro/escuro
+- theme: objeto com cores do tema atual
+- userRole: 'aluno' | 'motorista'
+- userData: { id, nome, cpf, email, ... }
+- clearAuth: () => void -> limpa autenticacao
+
+Nenhuma chamada HTTP e feita nesta tela.
+Tudo e gerenciado pelo contexto local (AppContext).
+
+Rotas de navegacao:
+- /dados-pessoais (edita dados pessoais)
+- /notificacoes (configura notificacoes)
+- /seguranca (altera senha)
+- /ajuda (central de ajuda)
+- /termos (termos e privacidade)
+
+================================================================================
+4. TABELAS DO BANCO DE DADOS (MySQL via Java)
+================================================================================
+
+Tabela: aluno (para dados pessoais)
+- id, nome, cpf, email, telefone, senha, matricula, escola,
+  endereco, data_nascimento, cidade_id, confirmou_presenca, viagem_id
+
+Tabela: motorista (para dados pessoais)
+- id, nome, cpf, email, telefone, senha, habilitacao, veiculo, cidade_id
+
+Tabela: configuracao_usuario (futuro)
+- id (BIGINT PK)
+- usuario_id (BIGINT FK)
+- dark_mode (BOOLEAN)
+- notificacoes_ativas (BOOLEAN)
+- notificacoes_chat (BOOLEAN)
+- notificacoes_avisos (BOOLEAN)
+
+================================================================================
+5. VALIDACOES / REGRAS DE NEGOCIO
+================================================================================
+
+- Dark Mode salva no contexto (permanece durante a sessao)
+- Logout remove token de autenticacao e redireciona para login
+- Nome do usuario vem do contexto (pos-login)
+- Subtitulo muda conforme userRole (aluno vs motorista)
+
+================================================================================
+6. FLUXO DE NAVEGACAO
+================================================================================
+
+1. Usuario clica em "Perfil" (aba inferior) -> navega para aba Perfil
+2. Perfil carrega dados do contexto (nome, cargo)
+3. Usuario toca "Dados Pessoais" -> /dados-pessoais
+4. Usuario toca "Notificacoes" -> /notificacoes
+5. Usuario toca "Seguranca e Senha" -> /seguranca
+6. Usuario ativa/desativa Dark Mode -> tema muda instantaneamente
+7. Usuario toca "Central de Ajuda" -> /ajuda
+8. Usuario toca "Termos e Privacidade" -> /termos
+9. Usuario toca "Sair da Conta" -> confirmacao -> / (login)
+
+================================================================================
+7. MIGRACAO PARA CLOUD - CHECKLIST
+================================================================================
+
+[ ] Criar API: GET /api/usuario/:id (buscar dados pessoais)
+[ ] Criar API: PUT /api/usuario/:id (atualizar dados pessoais)
+[ ] Criar API: PUT /api/usuario/:id/senha (alterar senha)
+[ ] Criar tabela "configuracao_usuario" (dark_mode, notificacoes)
+[ ] Criar API: GET/PUT /api/usuario/:id/config (preferencias)
+[ ] Persistir dark_mode no cloud (ao inves de so no contexto)
+[ ] Implementar tela /dados-pessoais com formularios de edicao
+[ ] Implementar tela /notificacoes com toggles
+[ ] Implementar tela /seguranca com alteracao de senha
+[ ] Implementar tela /termos com conteudo estatico
+[ ] Adicionar autenticacao JWT em todas as rotas
+
+================================================================================

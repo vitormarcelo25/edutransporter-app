@@ -1,0 +1,180 @@
+================================================================================
+                    DOCUMENTACAO DE TELA - INICIAR ROTA (GPS TRACKING)
+                          EduTransporter v10.1.0
+================================================================================
+
+Arquivo: app/(tabs)/iniciar-rota.tsx
+Tipo: Tela do sistema de abas (tabs)
+
+================================================================================
+1. VISAO GERAL
+================================================================================
+
+Tela de controle de viagem pelo motorista. Funcionalidades:
+- Exibe detalhes da rota do dia (nome, escola, horario, tipo, alunos)
+- Botao para iniciar viagem (verde) / encerrar viagem (vermelho)
+- Tracking GPS em tempo real (a cada 5 segundos)
+- Lista de alunos com status de presenca (apos iniciar)
+- Apenas motoristas podem acessar
+
+================================================================================
+2. COMPONENTES DA INTERFACE
+================================================================================
+
+Header:
+- Botao voltar
+- Titulo "Iniciar Rota"
+
+Para aluno (acesso negado):
+- Icone alert-circle (amarelo)
+- Mensagem: "Apenas motoristas podem iniciar rotas"
+
+Para motorista:
+
+Card Principal:
+- Icone de onibus (FontAwesome5, amarelo)
+- Nome da rota (ex: "ORE 3")
+- Escola
+- Detalhes: Horario, Tipo, Quantidade de Alunos
+- Badge de status:
+  * Amarelo (#F5A623): "Agendada"
+  * Verde (#48BB78): "Em Andamento"
+  * Cinza (#718096): "Encerrada"
+
+Botoes de Acao:
+- Se NAO iniciada e NAO encerrada:
+  * Botao verde "Iniciar Viagem" (icone play)
+- Se iniciada e NAO encerrada:
+  * Botao vermelho "Encerrar Viagem" (icone stop-circle)
+- Se encerrada: nenhum botao
+
+Lista de Alunos (so aparece apos iniciar):
+- Cards com:
+  * Avatar com inicial
+  * Nome do aluno
+  * Parada
+  * Badge de presenca: verde "Presente" / vermelho "Ausente"
+  * Click navega para /presenca
+
+================================================================================
+3. CHAMADAS A API / SERVICOS
+================================================================================
+
+Servicos importados (services/api.ts):
+- getRotaDoDia()              -> GET /api/viagem/rota-do-dia -> mock
+- iniciarRota(rotaId)         -> POST /api/viagem/iniciar   -> mock
+- encerrarRota(rotaId)        -> POST /api/viagem/encerrar  -> mock
+- updateGpsPosition(data)     -> POST /api/gps/update        -> mock
+
+Servicos de localizacao (expo-location):
+- Location.requestForegroundPermissionsAsync() -> permissao
+- Location.getCurrentPositionAsync({ accuracy: Balanced }) -> posicao atual
+
+Detalhes:
+
+  getRotaDoDia()
+  - GET /api/viagem/rota-do-dia
+  - Java: ViagemController.rotaDoDia()
+  - Retorna: { success, rota?: Rota }
+
+  iniciarRota(rotaId: string)
+  - POST /api/viagem/iniciar
+  - Java: ViagemController.iniciarRota()
+  - Atualiza status da viagem para "em_andamento"
+  - Define inicio_timestamp = NOW()
+  - Mock: retorna { success: true }
+  - Retorna: { success: boolean, message?: string }
+
+  encerrarRota(rotaId: string)
+  - POST /api/viagem/encerrar
+  - Java: ViagemController.encerrarRota()
+  - Atualiza status da viagem para "encerrada"
+  - Define fim_timestamp = NOW()
+  - Para o intervalo de GPS
+  - Mock: retorna { success: true }
+  - Retorna: { success: boolean, message?: string }
+
+  updateGpsPosition({ rotaId, position: { latitude, longitude, timestamp } })
+  - POST /api/gps/update
+  - Java: salva em memoria (HashMap)
+  - Enviado a cada 5 segundos via setInterval
+  - Mock: retorna { success: true }
+
+  Tracking GPS:
+  - Se permissao concedida: usa GPS real do dispositivo
+  - Se sem permissao: usa coordenadas simuladas (incremento progressivo)
+  - Simulacao: lat = -23.5505 - (step * 0.0008), lon = -46.6333 - (step * 0.0008)
+  - step incrementa a cada 5s e faz modulo 15
+
+================================================================================
+4. TABELAS DO BANCO DE DADOS (MySQL via Java)
+================================================================================
+
+Tabela: viagem
+- id (BIGINT PK)
+- nome (VARCHAR)
+- escola (VARCHAR)
+- horario (VARCHAR)
+- tipo (VARCHAR)
+- data (DATE)
+- status (VARCHAR) - agendada / em_andamento / encerrada
+- motorista_id (BIGINT FK)
+- inicio_timestamp (TIMESTAMP)
+- fim_timestamp (TIMESTAMP)
+
+Tabela: presenca
+- id, aluno_id, viagem_id, presente, data
+
+Tabela: gps_posicao (NAO EXISTE NO MYSQL - so em memoria no Java)
+- Se fosse persistir: viagem_id, latitude, longitude, timestamp
+
+================================================================================
+5. VALIDACOES / REGRAS DE NEGOCIO
+================================================================================
+
+- Apenas motoristas podem iniciar/encerrar rotas
+- Confirmacao antes de iniciar (Alert dialog)
+- Confirmacao antes de encerrar (Alert dialog)
+- GPS tracking so inicia apos confirmar inicio da rota
+- GPS tracking para ao encerrar rota (clearInterval)
+- Cleanup ao desmontar componente (useEffect return)
+- Status da rota determina botoes disponiveis
+- Simulacao GPS quando sem permissao (para demo)
+
+================================================================================
+6. FLUXO DE NAVEGACAO
+================================================================================
+
+1. Motorista clica "Iniciar Rota" (Home) -> navega para /iniciar-rota
+2. Tela carrega rota do dia via getRotaDoDia()
+3. Exibe card com detalhes e botao "Iniciar Viagem"
+4. Motorista toca "Iniciar Viagem" -> Alert de confirmacao
+5. Ao confirmar:
+   a. iniciarRota() chamado ao backend
+   b. Status muda para "Em Andamento"
+   c. GPS tracking inicia (a cada 5s)
+   d. Lista de alunos aparece
+6. Motorista toca "Encerrar Viagem" -> Alert de confirmacao
+7. Ao confirmar:
+   a. Intervalo GPS cancelado
+   b. encerrarRota() chamado ao backend
+   c. Status muda para "Encerrada"
+8. Click em aluno -> navega para /presenca
+
+================================================================================
+7. MIGRACAO PARA CLOUD - CHECKLIST
+================================================================================
+
+[ ] Criar API: POST /api/viagem/iniciar/:id (atualizar status + timestamp)
+[ ] Criar API: POST /api/viagem/encerrar/:id (atualizar status + timestamp)
+[ ] Criar tabela "gps_posicao" no cloud (viagem_id, lat, lng, timestamp)
+[ ] Criar API: POST /api/gps/update (salvar posicao no cloud DB)
+[ ] Criar API: GET /api/gps/ultima-posicao/:viagemId (ultima posicao)
+[ ] Adicionar autenticacao JWT
+[ ] Validar que motorista da rota e quem esta autenticado
+[ ] Proteger contra inicio duplicado (status ja == em_andamento)
+[ ] Adicionar log de auditoria (quem iniciou, quando)
+[ ] Avaliar uso de WebSocket para posicao em tempo real para alunos
+[ ] Considerar limitar GPS tracking a horarios de expediente
+
+================================================================================
