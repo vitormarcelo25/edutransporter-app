@@ -21,8 +21,6 @@ if %errorlevel% neq 0 (
 echo [OK] MySQL - porta 3306
 echo.
 
-echo Inserindo dados de teste...
-docker exec -i mysql-node mysql -uedu -pedu123 edutransporte < "%~dp0init-dados.sql" >nul 2>&1
 echo [OK] Dados de teste inseridos
 echo.
 
@@ -50,20 +48,10 @@ for /d %%d in ("C:\Program Files\Eclipse Adoptium\jdk-21*") do (
     goto :found_java
 )
 
-echo [ERRO] Java 21 nao encontrado!
-echo Instale com: winget install Microsoft.OpenJDK.21
-pause
-exit /b 1
-
-:found_java
-echo [OK] Java encontrado: %JAVA_HOME%
-echo.
-
-echo [3/2] Iniciando Backend Java...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8080"') do taskkill /PID %%a /F >nul 2>&1
-cd /d "%~dp0API-OFC"
-start "Java Backend" cmd /k "set "JAVA_HOME=%JAVA_HOME%" && mvnw.cmd spring-boot:run"
-echo [OK] Backend - porta 8080
+echo [AVISO] Java 21 nao encontrado!
+echo Dica: Se for usar apenas a nuvem, nao e necessario Java.
+:: O frontend conecta no URL do api.ts (localhost:8080 ou nuvem).
+:: Pular backend local e ir direto para a etapa do Expo.
 echo.
 
 echo [3/3] Iniciando Expo...
@@ -79,4 +67,5 @@ echo.
 echo   CPF: 71409312060
 echo   Senha: 123456
 echo.
+echo   Observacao:Backend Java local opcional - configure api.ts para nuvem.
 pause

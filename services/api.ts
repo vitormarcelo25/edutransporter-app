@@ -8,12 +8,17 @@
  */
 
 // ====== URL DO BACKEND ======
-// No mesmo PC:            http://localhost:3000/api
-// No celular (Expo Go):   http://SEU_IP:3000/api
-// Pra descobrir seu IP:   rode 'ipconfig' e pegue o IPv4 do Wi-Fi
-// Exemplo:                http://192.168.1.100:3000/api
+// Configuração para:
+// - Local (PC mesmo):     http://localhost:8080/api
+// - Nuvem (futuro):     https://SUA_URL_AQUI/api
+// - Celular (Expo Go):  http://10.0.2.2:8080/api (emulador) ou IP do PC na rede
+//
+// Para mudar para a nuvem, basta alterar a linha abaixo:
+// Exemplo: const API_BASE_URL = 'https://edutransporter.vercel.app/api';
 const API_BASE_URL = 'http://localhost:8080/api';
 const USE_MOCK = false;
+// Se USE_MOCK = true, o app usa dados fictícios (login, presença, etc)
+// Se USE_MOCK = false, tenta conectar na API_BASE_URL
 
 // ==========================================
 // DADOS MESTRES - Mock (Java não tem esses endpoints)
@@ -397,7 +402,29 @@ export const encerrarRota = async (rotaId: string): Promise<GpsResponse> => {
 };
 
 export const updateGpsPosition = async (data: { rotaId: string; position: GpsPosition }): Promise<GpsResponse> => {
-  return mockUpdateGps(data);
+  const res = await apiRequest('/rastreamento/atualizar', 'POST', {
+    rotaId: data.rotaId,
+    latitude: data.position.latitude,
+    longitude: data.position.longitude,
+  });
+  if (res.ok) {
+    return { success: true };
+  }
+  return { success: false, message: 'Erro ao atualizar GPS' };
+};
+
+export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean; position?: { latitude: number; longitude: number }; message?: string }> => {
+  const res = await apiRequest(`/rastreamento/posicao/${rotaId}`, 'GET');
+  if (res.ok && res.data) {
+    return {
+      success: true,
+      position: {
+        latitude: res.data.latitude,
+        longitude: res.data.longitude,
+      }
+    };
+  }
+  return { success: false, message: 'Posição indisponível' };
 };
 
 // ==========================================
