@@ -3,25 +3,15 @@
  * EduTransporter
  * 
  * API Service - Camada de comunicação com backend
- * Usa dados mock quando USE_MOCK = true
- * Alterna automaticamente para API real em produção
+ * TODO: dados mockados. Quando tiver backend na nuvem, trocar por chamadas reais.
+ * Para conectar na nuvem, descomente API_BASE_URL e substitua pela URL da API.
  */
 
-// ====== URL DO BACKEND ======
-// Configuração para:
-// - Local (PC mesmo):     http://localhost:8080/api
-// - Nuvem (futuro):     https://SUA_URL_AQUI/api
-// - Celular (Expo Go):  http://10.0.2.2:8080/api (emulador) ou IP do PC na rede
-//
-// Para mudar para a nuvem, basta alterar a linha abaixo:
-// Exemplo: const API_BASE_URL = 'https://edutransporter.vercel.app/api';
-const API_BASE_URL = 'http://localhost:8080/api';
-const USE_MOCK = false;
-// Se USE_MOCK = true, o app usa dados fictícios (login, presença, etc)
-// Se USE_MOCK = false, tenta conectar na API_BASE_URL
+// ====== URL DO BACKEND (descomente quando tiver backend na nuvem) ======
+// const API_BASE_URL = 'https://SUA_URL_AQUI/api';
 
 // ==========================================
-// DADOS MESTRES - Mock (Java não tem esses endpoints)
+// DADOS MESTRES - Mock
 // ==========================================
 
 export const getCidades = (): string[] => {
@@ -57,81 +47,23 @@ export interface ApiError {
 
 type ApiResponse = LoginResponse | RegisterResponse | ApiError;
 
-// Função utilitária pra fazer requests. Usa fetch nativo pra não precisar de axios
-const apiRequest = async (endpoint: string, method: string, body?: object): Promise<any> => {
-    try {
-        const options: RequestInit = {
-            method,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        };
-
-        if (body) {
-            options.body = JSON.stringify(body);
-        }
-
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-        const text = await response.text();
-        let data: any;
-        try { data = JSON.parse(text); } catch { data = text; }
-        return { ok: response.ok, status: response.status, data };
-    } catch (error) {
-        return { ok: false, status: 0, data: null, networkError: true };
-    }
-};
-
-// FUNÇÕES MOCK (usadas quando USE_MOCK = true)
-// Função fake de login por enquanto. Depois a gente liga na API de verdade!
-const mockLogin = async (email: string, pass: string): Promise<LoginResponse> => {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve({ success: true, token: '123', user: { id: '1', nome: 'Teste', email, role: 'aluno' as const } });
-        }, 1000);
-    });
-};
-
-// Função fake de registo
-const mockRegister = async (data: object): Promise<RegisterResponse> => {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve({ success: true, message: 'Conta criada com sucesso!', userId: '123' });
-        }, 1000);
-    });
-};
-
-// POST /api/aluno/login { cpf, senha } → boolean
-// POST /api/motorista/login { cpf, senha } → "Acesso permitido"
+// Login mock - substituir por chamada real quando tiver backend na nuvem
 export const login = async (email: string, pass: string, role?: string, cpf?: string): Promise<LoginResponse> => {
     const cpfValue = cpf || email;
     const cpfLimpo = cpfValue.replace(/\D/g, '');
 
-    if (role === 'motorista') {
-        const res = await apiRequest('/motorista/login', 'POST', { cpf: cpfLimpo, senha: pass });
-        if (res.ok) {
-            return {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve({
                 success: true,
-                token: `token_java_${cpfLimpo}_${Date.now()}`,
-                user: { id: cpfLimpo, nome: cpfLimpo, email: '', role: 'motorista' },
-            };
-        }
-        return { success: false, message: res.data || 'Credenciais inválidas' };
-    }
-
-    // Aluno
-    const res = await apiRequest('/aluno/login', 'POST', { cpf: cpfLimpo, senha: pass });
-    if (res.ok && res.data === true) {
-        return {
-            success: true,
-            token: `token_java_${cpfLimpo}_${Date.now()}`,
-            user: { id: cpfLimpo, nome: cpfLimpo, email: '', role: 'aluno' },
-        };
-    }
-    return { success: false, message: 'Credenciais inválidas' };
+                token: `token_${cpfLimpo}_${Date.now()}`,
+                user: { id: cpfLimpo, nome: cpfLimpo, email: '', role: (role as 'motorista' | 'aluno') || 'aluno' },
+            });
+        }, 1000);
+    });
 };
 
-// AlunoDTO: { cpf, nome, numeroCelular, senha, nomeCidade, nomeEstado, nomeFaculdade }
-// MotoristaDTO: { cpf, nome, numeroCelular, senha, carteiraConducao, nomeCidade, nomeEstado }
+// Registro mock - substituir por chamada real quando tiver backend na nuvem
 export const register = async (data: {
     nome: string;
     email: string;
@@ -145,43 +77,11 @@ export const register = async (data: {
     password: string;
     cpf?: string;
 }): Promise<RegisterResponse> => {
-
-    const cpfLimpo = (data.cpf || data.email || '').replace(/\D/g, '');
-
-    if (data.role === 'aluno') {
-        const alunoDTO = {
-            cpf: cpfLimpo,
-            nome: data.nome,
-            numeroCelular: data.telefone,
-            senha: data.password,
-            nomeCidade: data.cidade,
-            nomeEstado: 'PE',
-            nomeFaculdade: data.escola || '',
-        };
-        const res = await apiRequest('/aluno/cadastrar', 'POST', alunoDTO);
-        if (res.ok) {
-            return { success: true, message: 'Conta criada com sucesso!', userId: cpfLimpo };
-        }
-        const msg = typeof res.data === 'string' ? res.data : 'Erro ao cadastrar';
-        return { success: false, message: msg };
-    }
-
-    // Motorista
-    const motoristaDTO = {
-        cpf: cpfLimpo,
-        nome: data.nome,
-        numeroCelular: data.telefone,
-        senha: data.password,
-        carteiraConducao: data.cartaConducao || '',
-        nomeCidade: data.cidade,
-        nomeEstado: 'PE',
-    };
-    const res = await apiRequest('/motorista/cadastrar', 'POST', motoristaDTO);
-    if (res.ok) {
-        return { success: true, message: 'Conta criada com sucesso!', userId: cpfLimpo };
-    }
-    const msg = typeof res.data === 'string' ? res.data : 'Erro ao cadastrar';
-    return { success: false, message: msg };
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve({ success: true, message: 'Conta criada com sucesso!', userId: Date.now().toString() });
+        }, 1000);
+    });
 };
 
 // Mantido pra compatibilidade
@@ -401,30 +301,20 @@ export const encerrarRota = async (rotaId: string): Promise<GpsResponse> => {
   return mockEncerrarRota(rotaId);
 };
 
+// GPS mock - substituir por chamada real quando tiver backend na nuvem
 export const updateGpsPosition = async (data: { rotaId: string; position: GpsPosition }): Promise<GpsResponse> => {
-  const res = await apiRequest('/rastreamento/atualizar', 'POST', {
-    rotaId: data.rotaId,
-    latitude: data.position.latitude,
-    longitude: data.position.longitude,
-  });
-  if (res.ok) {
-    return { success: true };
-  }
-  return { success: false, message: 'Erro ao atualizar GPS' };
+  return mockUpdateGps(data);
 };
 
 export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean; position?: { latitude: number; longitude: number }; message?: string }> => {
-  const res = await apiRequest(`/rastreamento/posicao/${rotaId}`, 'GET');
-  if (res.ok && res.data) {
-    return {
-      success: true,
-      position: {
-        latitude: res.data.latitude,
-        longitude: res.data.longitude,
-      }
-    };
-  }
-  return { success: false, message: 'Posição indisponível' };
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({
+        success: true,
+        position: { latitude: -23.5505, longitude: -46.6333 },
+      });
+    }, 200);
+  });
 };
 
 // ==========================================
@@ -444,20 +334,9 @@ const mockMarcarPresenca = async (alunoId: string, presente: boolean): Promise<P
   });
 };
 
+// Presença mock - substituir por chamada real quando tiver backend na nuvem
 export const marcarPresenca = async (alunoId: string, presente: boolean): Promise<PresencaResponse> => {
-  if (USE_MOCK) return mockMarcarPresenca(alunoId, presente);
-  const cpfLimpo = alunoId.replace(/\D/g, '');
-  const hoje = new Date().toISOString().split('T')[0];
-  const res = await apiRequest('/presenca/marcar', 'POST', {
-    idViagem: 2,
-    cpfAluno: cpfLimpo,
-    dataViagem: hoje,
-    nomeMotorista: 'Joao Motorista',
-  });
-  if (res.ok) {
-    return { success: true, message: 'Presença confirmada!' };
-  }
-  return { success: false, message: typeof res.data === 'string' ? res.data : 'Erro ao marcar presença' };
+  return mockMarcarPresenca(alunoId, presente);
 };
 
 // ==========================================
@@ -471,28 +350,21 @@ export interface ConfirmacaoResponse {
   ordem?: number;
 }
 
+// Confirmação de presença mock - substituir por chamada real quando tiver backend na nuvem
 export const confirmarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
-  const cpfLimpo = alunoId.replace(/\D/g, '');
-  const hoje = new Date().toISOString().split('T')[0];
-  const res = await apiRequest('/presenca/marcar', 'POST', {
-    idViagem: 2,
-    cpfAluno: cpfLimpo,
-    dataViagem: hoje,
-    nomeMotorista: 'Joao Motorista',
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({ success: true, message: 'Presença confirmada!', assento: '2A', ordem: 1 });
+    }, 300);
   });
-  if (res.ok) {
-    return { success: true, message: 'Presença confirmada!', assento: '2A', ordem: 1 };
-  }
-  return { success: false, message: typeof res.data === 'string' ? res.data : 'Erro ao confirmar presença' };
 };
 
 export const cancelarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
-  const cpfLimpo = alunoId.replace(/\D/g, '');
-  const res = await apiRequest('/presenca/desmarcar/1', 'DELETE');
-  if (res.ok) {
-    return { success: true, message: 'Presença cancelada' };
-  }
-  return { success: false, message: typeof res.data === 'string' ? res.data : 'Erro ao cancelar presença' };
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({ success: true, message: 'Presença cancelada' });
+    }, 300);
+  });
 };
 
 // ==========================================
