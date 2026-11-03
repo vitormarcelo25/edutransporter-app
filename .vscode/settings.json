@@ -5,6 +5,7 @@
     "source.sortMembers": "explicit"
   },
   "files.watcherExclude": {
-    "**/target": true
-  }
+    "**/target/**": true
+  },
+  "java.compile.nullAnalysis.mode": "disabled"
 }
