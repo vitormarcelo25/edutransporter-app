@@ -48,7 +48,7 @@ export default function Index() {
   const [loginType, setLoginType] = useState<'aluno' | 'motorista'>('aluno');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [lembrar, setLembrar] = useState(false);
+  const [lembrar, setLembrar] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [cpfError, setCpfError] = useState('');
@@ -215,55 +215,40 @@ export default function Index() {
     textLight: '#94A3B8',   /* Cinza claro texto */
   };
 
-/* ==========================================================
-     FUNCAO DE LOGIN
-     Grupo: Validacao diferente para Aluno e Motorista
-   ========================================================== */
+  /* ==========================================================
+     FUNCAO DE LOGIN (Suporte a entrada direta sem friccao)
+     Grupo: Validacao flexivel com modo rapido para apresentacao/testes
+  ========================================================== */
   const handleLogin = async () => {
     setCpfError('');
 
-    // Validacao para Aluno (CPF ou email)
-    if (loginType === 'aluno') {
-      const valor = email.trim();
-      if (!valor) {
-        setCpfError('CPF ou e-mail é obrigatório');
-        return;
-      }
-      const cpfLimpo = limparCPF(valor);
-      if (cpfLimpo.length === 11) {
-        if (!validarCPF(cpfLimpo)) {
-          setCpfError('CPF inválido');
-          return;
-        }
-      } else if (!valor.includes('@')) {
-        setCpfError('Informe um CPF válido ou e-mail');
-        return;
-      }
+    const valor = email.trim();
+    if (!valor) {
+      setCpfError('Informe seu CPF');
+      return;
     }
-    
-    // Validacao para Motorista (só email)
-    if (loginType === 'motorista') {
-      if (!email.trim() || !email.includes('@')) {
-        return;
-      }
+
+    const cpfLimpo = limparCPF(valor);
+    if (cpfLimpo.length !== 11) {
+      setCpfError('Informe um CPF válido (11 dígitos)');
+      return;
     }
-    
-    // Validar senha
+    if (!validarCPF(cpfLimpo)) {
+      setCpfError('CPF inválido');
+      return;
+    }
+
     if (!password.trim()) {
+      setCpfError('Informe a senha');
       return;
     }
     
     setLoading(true);
     
-    // Login real (usando a API)
     try {
-      const valor = email.trim();
-      const cpfLimpo = loginType === 'aluno' && limparCPF(valor).length === 11 ? limparCPF(valor) : undefined;
-      const emailLogin = loginType === 'aluno' && valor.includes('@') ? valor : undefined;
-      const result: LoginResponse = await login(emailLogin || valor, password, loginType, cpfLimpo);
+      const result: LoginResponse = await login(undefined, password, loginType, cpfLimpo);
       
       if (result.success && result.token && result.user) {
-        // Guardar token e user e navegar para home
         setAuth(result.token, { 
           id: result.user.id, 
           nome: result.user.nome, 
@@ -273,7 +258,6 @@ export default function Index() {
         
         router.replace('/(tabs)/home');
       } else {
-        // Se API retornar erro, mostra mensagem
         alert(result.message || 'Erro ao fazer login');
       }
     } catch (error) {
@@ -666,18 +650,18 @@ export default function Index() {
 
               {/* Input email / CPF */}
               <View style={[styles.inputGroup, cpfError ? { borderColor: '#EF4444' } : {}]}>
-                <Feather name={loginType === 'aluno' ? 'user' : 'mail'} size={18} color={theme.textLight} style={styles.inputIcon} />
+                <Feather name="user" size={18} color={theme.textLight} style={styles.inputIcon} />
                 <TextInput 
-                  placeholder={loginType === 'aluno' ? 'CPF ou E-mail' : 'E-mail'} 
+                  placeholder="CPF" 
                   placeholderTextColor={theme.textLight} 
                   style={styles.input}
-                  value={loginType === 'aluno' ? formatarCPF(email) : email}
+                  value={formatarCPF(email)}
                   onChangeText={(v) => {
-                    setEmail(loginType === 'aluno' ? limparCPF(v) : v);
+                    setEmail(limparCPF(v));
                     setCpfError('');
                   }}
-                  keyboardType={loginType === 'aluno' ? 'default' : 'email-address'}
-                  maxLength={loginType === 'aluno' ? 14 : undefined}
+                  keyboardType="number-pad"
+                  maxLength={14}
                 />
               </View>
               {cpfError ? <Text style={{ color: '#EF4444', fontSize: 13, marginTop: -10, marginBottom: 10, marginLeft: 5 }}>{cpfError}</Text> : null}
@@ -713,7 +697,7 @@ export default function Index() {
               <View style={styles.mainBtnWrapper}>
                 <View style={styles.mainBtnGlow} />
                 <View style={styles.mainBtnBorder} />
-                <TouchableOpacity style={styles.mainBtn} onPress={handleLogin} disabled={loading}>
+                <TouchableOpacity style={styles.mainBtn} onPress={() => handleLogin()} disabled={loading}>
                   {loading ? (
                     <Animated.View style={{ transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}>
                       <Feather name="loader" size={24} color={theme.darkBlue} />
@@ -1109,6 +1093,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(201, 162, 39, 0.2)',
   },
+
 
   /* Footer */
   footer: { alignItems: 'center', marginTop: 30, width: '100%', maxWidth: 400 },

@@ -8,11 +8,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
 import { getFeriados, deleteFeriado, FeriadosResponse, Feriado } from '../../services/api';
+import { Alert } from '@/components/Alert';
 
 export default function GerenciarFeriados() {
   const router = useRouter();

@@ -9,12 +9,13 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
-import { getRotaDoDia, iniciarRota, encerrarRota, Rota, RotaResponse } from '@/services/api';
+import { getRotaDoDia, iniciarRota, encerrarRota, updateGpsPosition, Rota, RotaResponse } from '@/services/api';
 import * as Location from 'expo-location';
+import { Alert } from '@/components/Alert';
 
 export default function IniciarRota() {
   const router = useRouter();
@@ -49,25 +50,80 @@ export default function IniciarRota() {
 
   // Função para obter permissão de localização
   const requestLocationPermission = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    return status === 'granted';
+    try {
+      if (Platform.OS === 'web') {
+        // Simple check for geolocation API in browser
+        if (!navigator.geolocation) {
+          return false;
+        }
+      }
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      return status === 'granted';
+    } catch (e) {
+      console.log('Erro ao obter permissão de localização:', e);
+      return false;
+    }
   };
 
   // Função para iniciar o tracking GPS
   const startGpsTracking = async () => {
-    const hasPermission = await requestLocationPermission();
-    if (!hasPermission) {
+    let hasPermission = false;
+    try {
+      hasPermission = await requestLocationPermission();
+    } catch (err) {
+      console.log('Falha ao checar permissões:', err);
+    }
+
+    if (!hasPermission && Platform.OS !== 'web') {
       Alert.alert('Erro', 'Permissão de localização negada');
       return;
     }
 
+    if (!hasPermission && Platform.OS === 'web') {
+      console.log('Permissão de GPS negada/indisponível no navegador. Ativando simulação.');
+    }
+
+    let step = 0;
     // Inicia o intervalo de envio de GPS
     gpsIntervalRef.current = setInterval(async () => {
       try {
-        const location = await Location.getCurrentPositionAsync({});
-        console.log('GPS:', location.coords.latitude, location.coords.longitude);
+        let lat = -23.5505;
+        let lon = -46.6333;
+
+        if (hasPermission) {
+          try {
+            const location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            lat = location.coords.latitude;
+            lon = location.coords.longitude;
+          } catch (err) {
+            console.log('Erro ao ler GPS real. Usando simulação:', err);
+            // Simulação de rota incrementando as coordenadas
+            lat = -23.5505 - (step * 0.0008);
+            lon = -46.6333 - (step * 0.0008);
+            step = (step + 1) % 15;
+          }
+        } else {
+          // Simulação pura para testes na Web sem permissão
+          lat = -23.5505 - (step * 0.0008);
+          lon = -46.6333 - (step * 0.0008);
+          step = (step + 1) % 15;
+        }
+
+        console.log('GPS atualizado:', lat, lon);
+        if (rota) {
+          await updateGpsPosition({
+            rotaId: rota.id,
+            position: {
+              latitude: lat,
+              longitude: lon,
+              timestamp: Date.now()
+            }
+          });
+        }
       } catch (err) {
-        console.log('Erro GPS:', err);
+        console.log('Erro no intervalo do GPS:', err);
       }
     }, 5000); // A cada 5 segundos
   };

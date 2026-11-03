@@ -9,13 +9,14 @@ import {
   FlatList,
   StatusBar,
   Dimensions,
-  Platform
+  Platform,
+  TextInput
 } from 'react-native';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 
 import { useApp } from './_layout';
-import { getRotaDoDia, Rota, RotaResponse, RotaAluno } from '@/services/api';
+import { getRotaDoDia, Rota, RotaResponse, RotaAluno, marcarPresenca } from '@/services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -25,6 +26,7 @@ export default function Listas() {
   
   const [rota, setRota] = useState<Rota | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   // Assentos ocupados (mock)
   const occupiedSeats = [2, 5, 8, 12, 15, 20, 24, 30, 31, 35, 40, 44, 52, 58, 63];
@@ -39,12 +41,40 @@ export default function Listas() {
     }
   };
 
+  const handleTogglePresenca = async (alunoId: string, atual: boolean) => {
+    try {
+      const novoStatus = !atual;
+      const res = await marcarPresenca(alunoId, novoStatus);
+      if (res.success) {
+        if (rota) {
+          const alunosAtualizados = rota.alunos.map(a => 
+            a.id === alunoId ? { ...a, presente: novoStatus } : a
+          );
+          setRota({ ...rota, alunos: alunosAtualizados });
+        }
+      } else {
+        alert(res.message || 'Erro ao alterar presença');
+      }
+    } catch (err) {
+      console.log('Erro ao alterar presença:', err);
+    }
+  };
+
   useEffect(() => {
     loadRota();
   }, []);
 
 // Se for motorista ou admin, mostrar lista de alunos (não o mapa de assentos)
   if (userRole !== 'aluno') {
+    const filteredAlunos = rota?.alunos.filter(aluno => 
+      aluno.nome.toLowerCase().includes(searchText.toLowerCase()) || 
+      aluno.parada.toLowerCase().includes(searchText.toLowerCase())
+    ) || [];
+
+    const totalAlunos = rota?.alunos.length || 0;
+    const presentes = rota?.alunos.filter(a => a.presente).length || 0;
+    const faltantes = totalAlunos - presentes;
+
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -66,10 +96,14 @@ export default function Listas() {
         </View>
 
         <FlatList
-            data={rota?.alunos || []}
+            data={filteredAlunos}
             keyExtractor={(item) => item.id}
             renderItem={({ item: aluno }) => (
-              <View style={[styles.alunoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <TouchableOpacity 
+                activeOpacity={0.8}
+                onPress={() => handleTogglePresenca(aluno.id, aluno.presente)}
+                style={[styles.alunoCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+              >
                 <View style={[styles.alunoAvatar, { backgroundColor: theme.inputBg }]}>
                   <Text style={[styles.alunoInicial, { color: theme.gold }]}>
                     {aluno.nome.charAt(0)}
@@ -77,35 +111,63 @@ export default function Listas() {
                 </View>
                 <View style={styles.alunoInfo}>
                   <Text style={[styles.alunoNome, { color: theme.text }]}>{aluno.nome}</Text>
-                  <Text style={[styles.alunoParada, { color: theme.subtext }]}>{aluno.parada}</Text>
+                  <Text style={[styles.alunoParada, { color: theme.subtext }]} numberOfLines={1}>{aluno.parada}</Text>
                 </View>
                 <View style={[styles.presencaStatus, { backgroundColor: aluno.presente ? '#48BB78' : '#EF4444' }]}>
                   <Text style={styles.presencaText}>
                     {aluno.presente ? 'Presente' : 'Ausente'}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
             ListHeaderComponent={
-              <View>
-                <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={[styles.infoRow, { borderBottomColor: theme.border }]}>
-                    <FontAwesome5 name="users" size={20} color={theme.gold} />
-                    <Text style={[styles.infoLabel, { color: theme.subtext }]}>Total de Alunos</Text>
-                    <Text style={[styles.infoValue, { color: theme.text }]}>{rota?.alunos.length || 0}</Text>
+              <View style={{ width: '100%' }}>
+                {/* Cards de estatísticas horizontais */}
+                <View style={styles.statsRow}>
+                  <View style={[styles.statBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <FontAwesome5 name="users" size={16} color={theme.gold} />
+                    <Text style={[styles.statValue, { color: theme.text }]}>{totalAlunos}</Text>
+                    <Text style={[styles.statLabel, { color: theme.subtext }]}>Total Alunos</Text>
                   </View>
-                  <View style={[styles.infoRow, { borderBottomColor: theme.border }]}>
-                    <MaterialCommunityIcons name="checkbox-marked" size={20} color="#48BB78" />
-                    <Text style={[styles.infoLabel, { color: theme.subtext }]}>Presentes</Text>
-                    <Text style={[styles.infoValue, { color: '#48BB78' }]}>{rota?.alunos.filter(a => a.presente).length || 0}/40</Text>
+                  <View style={[styles.statBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <MaterialCommunityIcons name="checkbox-marked" size={18} color="#48BB78" />
+                    <Text style={[styles.statValue, { color: '#48BB78' }]}>{presentes}</Text>
+                    <Text style={[styles.statLabel, { color: theme.subtext }]}>Presentes</Text>
                   </View>
-                  <View style={styles.infoRow}>
-                    <Feather name="map-pin" size={20} color="#3182CE" />
-                    <Text style={[styles.infoLabel, { color: theme.subtext }]}>Rota</Text>
-                    <Text style={[styles.infoValue, { color: theme.text }]}>{rota?.nome || '-'}</Text>
+                  <View style={[styles.statBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <MaterialCommunityIcons name="close-box" size={18} color="#EF4444" />
+                    <Text style={[styles.statValue, { color: '#EF4444' }]}>{faltantes}</Text>
+                    <Text style={[styles.statLabel, { color: theme.subtext }]}>Faltantes</Text>
                   </View>
                 </View>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Lista de Alunos Presentes</Text>
+
+                {/* Detalhes da Rota */}
+                <View style={[styles.routeDetailCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Feather name="map-pin" size={20} color="#3182CE" />
+                  <View style={styles.routeDetailText}>
+                    <Text style={[styles.routeDetailLabel, { color: theme.subtext }]}>Rota Ativa</Text>
+                    <Text style={[styles.routeDetailValue, { color: theme.text }]}>{rota?.nome || 'Nenhuma rota agendada'}</Text>
+                  </View>
+                </View>
+
+                {/* Barra de Pesquisa */}
+                <View style={[styles.searchBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Feather name="search" size={16} color={theme.subtext} />
+                  <TextInput
+                    placeholder="Buscar aluno ou parada..."
+                    placeholderTextColor={theme.subtext}
+                    style={[styles.searchInput, { color: theme.text }]}
+                    value={searchText}
+                    onChangeText={setSearchText}
+                  />
+                  {searchText ? (
+                    <TouchableOpacity onPress={() => setSearchText('')}>
+                      <Feather name="x" size={16} color={theme.subtext} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Lista de Alunos ({filteredAlunos.length})</Text>
               </View>
             }
             ListEmptyComponent={
@@ -113,9 +175,14 @@ export default function Listas() {
                 <TouchableOpacity style={[styles.loadBtn, { backgroundColor: theme.gold }]} onPress={loadRota}>
                   <Text style={styles.loadBtnText}>Carregar Lista</Text>
                 </TouchableOpacity>
-              ) : null
+              ) : (
+                <View style={{ alignItems: 'center', paddingVertical: 40, width: '100%' }}>
+                  <Feather name="users" size={48} color={theme.subtext} style={{ opacity: 0.5, marginBottom: 10 }} />
+                  <Text style={{ color: theme.subtext, fontSize: 14 }}>Nenhum aluno encontrado</Text>
+                </View>
+              )
             }
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={styles.driverScrollContent}
             showsVerticalScrollIndicator={false}
           />
       </SafeAreaView>
@@ -298,20 +365,31 @@ const styles = StyleSheet.create({
   plateText: { color: '#1A253A', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
   
   scrollContent: { padding: 20, alignItems: 'center' },
-  infoCard: { borderRadius: 16, borderWidth: 1, marginBottom: 20, overflow: 'hidden' },
-  infoRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1 },
-  infoLabel: { flex: 1, fontSize: 14, marginLeft: 10 },
-  infoValue: { fontSize: 16, fontWeight: 'bold' },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 15 },
-  alunoCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 10 },
-  alunoAvatar: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  driverScrollContent: { padding: 20, width: '100%' },
+  
+  statsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 20, width: '100%' },
+  statBox: { flex: 1, borderRadius: 16, borderWidth: 1, padding: 12, alignItems: 'center', justifyContent: 'center', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+  statValue: { fontSize: 18, fontWeight: '800', marginTop: 6 },
+  statLabel: { fontSize: 10, marginTop: 2, fontWeight: '600', textAlign: 'center' },
+  
+  routeDetailCard: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 16, borderWidth: 1, marginBottom: 20, gap: 12, width: '100%' },
+  routeDetailText: { flex: 1 },
+  routeDetailLabel: { fontSize: 9, fontWeight: 'bold', textTransform: 'uppercase' },
+  routeDetailValue: { fontSize: 14, fontWeight: 'bold', marginTop: 2 },
+  
+  searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 48, borderRadius: 24, borderWidth: 1, marginBottom: 20, gap: 10, width: '100%' },
+  searchInput: { flex: 1, fontSize: 14, padding: 0, height: '100%' },
+
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 15, width: '100%', alignSelf: 'flex-start' },
+  alunoCard: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 16, borderWidth: 1, marginBottom: 10, width: '100%', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+  alunoAvatar: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center' },
   alunoInicial: { fontSize: 16, fontWeight: 'bold' },
-  alunoInfo: { flex: 1, marginLeft: 12 },
+  alunoInfo: { flex: 1, marginLeft: 12, marginRight: 8 },
   alunoNome: { fontSize: 14, fontWeight: 'bold' },
   alunoParada: { fontSize: 12, marginTop: 2 },
-  presencaStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  presencaStatus: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   presencaText: { color: '#FFF', fontSize: 11, fontWeight: 'bold' },
-  loadBtn: { height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
+  loadBtn: { height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginTop: 20, width: '100%' },
   loadBtnText: { color: '#1A253A', fontSize: 16, fontWeight: 'bold' },
 
   scrollContainer: { flex: 1 },

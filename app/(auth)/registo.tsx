@@ -7,7 +7,7 @@
  * Campos mudam dinamicamente conforme o role escolhido
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
   ScrollView, StatusBar, SafeAreaView, KeyboardAvoidingView, Platform
@@ -27,44 +27,76 @@ type Role = 'motorista' | 'aluno';
 export default function Registo() {
   const router = useRouter();
   const { addToast } = useToast();
-  const { setAuth } = useApp();
    
-  const [role, setRole] = useState<Role>('aluno');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [solicitacaoEnviada, setSolicitacaoEnviada] = useState(false);
   const [cpfError, setCpfError] = useState('');
+  const [turno, setTurno] = useState<'Matutino' | 'Vespertino' | 'Noturno'>('Noturno');
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
     cpf: '',
     telefone: '',
     cidade: '',
+    cidadeId: 0,
     escola: '',
+    faculdadeId: 0,
     matriculaEscolar: '',
-    matriculaVeiculo: '',
-    cartaConducao: '',
+    pontoEmbarque: '',
     password: '',
     confirmPassword: '',
   });
 
-  const [cidadeSuggestions] = useState<string[]>(getCidades());
+  const [cidadeSuggestions, setCidadeSuggestions] = useState<string[]>([]);
+  const [cidades, setCidades] = useState<{ id: number; nome: string }[]>([]);
   const [instituicoesFiltradas, setInstituicoesFiltradas] = useState<string[]>([]);
+  const [faculdades, setFaculdades] = useState<{ id: number; nome: string }[]>([]);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      try {
+        const [cidadesResp, instituicoes] = await Promise.all([getCidades(), getInstituicoes()]);
+        if (!ativo) return;
+        setCidades(cidadesResp);
+        setCidadeSuggestions(cidadesResp.map((c) => c.nome));
+        setFaculdades(instituicoes);
+        if (cidadesResp.length === 0) {
+          addToast('error', 'Nenhuma cidade cadastrada no servidor. Contate a administração.');
+        }
+      } catch (err: any) {
+        if (ativo) {
+          addToast('error', 'Não foi possível carregar cidades e instituições do servidor.');
+        }
+      }
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   const handleCidadeSelect = (cidade: string) => {
-    handleInputChange('cidade', cidade);
-    const instituicoes = getInstituicoes(cidade);
-    setInstituicoesFiltradas(instituicoes);
-    if (instituicoes.length > 0) {
-      handleInputChange('escola', '');
-    }
+    const item = cidades.find((c) => c.nome === cidade);
+    setFormData((prev) => ({
+      ...prev,
+      cidade,
+      cidadeId: item?.id || 0,
+      escola: '',
+      faculdadeId: 0,
+    }));
+    setInstituicoesFiltradas(faculdades.map((f) => f.nome));
   };
 
   const handleInstituicaoSelect = (instituicao: string) => {
-    handleInputChange('escola', instituicao);
+    const item = faculdades.find((f) => f.nome === instituicao);
+    setFormData((prev) => ({
+      ...prev,
+      escola: instituicao,
+      faculdadeId: item?.id || 0,
+    }));
   };
 
-  // Cores da nossa identidade visual. Deixei "chumbado" aqui por enquanto
-  // pra facilitar na hora de montar a tela, depois a gente passa pro global se precisar
   const theme = {
     gold: '#F5A623',       
     darkBlue: '#1A253A',   
@@ -79,65 +111,69 @@ export default function Registo() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-   // Função fake por enquanto. Quando tiver backend a gente faz a validação certa
-   // Por hora só pula pra home pra gente testar o fluxo das telas
-   const handleRegisto = async () => {
-      if (formData.password !== formData.confirmPassword) {
-        addToast('error', 'As senhas não coincidem');
-        return;
-      }
+  const handleRegisto = async () => {
+    if (!formData.nome.trim()) {
+      addToast('error', 'Nome completo é obrigatório');
+      return;
+    }
 
-       if (role === 'aluno' && !validarCPF(formData.cpf)) {
-         setCpfError('CPF deve ter 11 dígitos');
-         return;
-       }
+    if (formData.password && formData.password !== formData.confirmPassword) {
+      addToast('error', 'As senhas não coincidem');
+      return;
+    }
 
-       if (role === 'aluno' && (!formData.email || !formData.email.includes('@'))) {
-         addToast('error', 'E-mail é obrigatório');
-         return;
-       }
+    if (formData.cpf && !validarCPF(formData.cpf)) {
+      setCpfError('CPF deve ter 11 dígitos válidos');
+      return;
+    }
 
-       setLoading(true);
+    if (!formData.cidadeId) {
+      addToast('error', 'Selecione sua cidade de origem');
+      return;
+    }
+    if (!formData.faculdadeId) {
+      addToast('error', 'Selecione a instituição / faculdade');
+      return;
+    }
+    if (!formData.password || formData.password.length < 4) {
+      addToast('error', 'Crie uma senha com pelo menos 4 caracteres');
+      return;
+    }
 
-       const data = {
-         nome: formData.nome,
-         email: formData.email,
-         cpf: role === 'aluno' ? limparCPF(formData.cpf) : '',
-        telefone: formData.telefone,
-        cidade: formData.cidade,
-        role: role,
-        escola: formData.escola,
-        matriculaEscolar: formData.matriculaEscolar,
-        matriculaVeiculo: formData.matriculaVeiculo,
-        cartaConducao: formData.cartaConducao,
-        password: formData.password,
-      };
+    setLoading(true);
 
-const result: RegisterResponse = await register(data);
+    const data = {
+      nome: formData.nome,
+      email: formData.email || `${limparCPF(formData.cpf) || 'aluno'}@estudante.com`,
+      cpf: limparCPF(formData.cpf),
+      telefone: formData.telefone,
+      cidade: formData.cidade,
+      cidadeId: formData.cidadeId,
+      role: 'aluno' as const,
+      escola: formData.escola,
+      faculdadeId: formData.faculdadeId,
+      matriculaEscolar: formData.matriculaEscolar || 'Pendente',
+      pontoEmbarque: formData.pontoEmbarque || 'Ponto Central',
+      turno: turno,
+      password: formData.password,
+    };
 
-      setLoading(false);
+    const result: RegisterResponse = await register(data);
 
-      if (result.success && result.token && result.user) {
-        await setAuth(result.token, { 
-          id: result.user.id, 
-          nome: result.user.nome, 
-          email: result.user.email, 
-          role: result.user.role 
-        }, result.user.role);
-        
-        addToast('success', 'Conta criada com sucesso!');
-        router.replace('/(tabs)/home');
-      } else {
-        addToast('error', result.message || 'Erro ao criar conta');
-      }
-   };
+    setLoading(false);
+
+    if (result.success) {
+      setSolicitacaoEnviada(true);
+      addToast('success', 'Solicitação enviada com sucesso!');
+    } else {
+      addToast('error', result.message || 'Erro ao enviar solicitação');
+    }
+  };
 
   return (
     <>
-      {/* Arrancando o cabeçalho feio do Expo */}
       <Stack.Screen options={{ headerShown: false }} />
       
-      {/* Fundo com imagem */}
       <View style={styles.container}>
         <Image 
           source={require('../../assets/foto-fundo.png')} 
@@ -148,20 +184,15 @@ const result: RegisterResponse = await register(data);
         
         <SafeAreaView style={{ flex: 1 }}>
           <View style={styles.header}>
-            {/* Se o cara desistir de criar conta, esse botão joga ele de volta pro login */}
             <TouchableOpacity onPress={() => router.replace('/')} style={styles.backBtn}>
               <Feather name="arrow-left" size={28} color={theme.textMain} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Criar Conta</Text>
-            {/* Esse View vazio aqui é só uma gambiarra pra centralizar o título direito */}
+            <Text style={styles.headerTitle}>Solicitação de Acesso</Text>
             <View style={{ width: 28 }} /> 
           </View>
 
-          {/* O keyboardShouldPersistTaps="handled" salvou a vida aqui. 
-              Antes a gente clicava pra registrar e o clique falhava por causa do teclado aberto */}
           <KeyboardAvoidingView 
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={{ flex: 1 }}
           >
           <ScrollView 
@@ -169,170 +200,201 @@ const result: RegisterResponse = await register(data);
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.formContainer}>
-              
-              <Text style={styles.formTitle}>Quem é você?</Text>
+            {solicitacaoEnviada ? (
+              /* CARD DE SUCESSO - SOLICITACAO ENVIADA */
+              <View style={[styles.formContainer, { alignItems: 'center', paddingVertical: 32 }]}>
+                <View style={[styles.successIconCircle, { backgroundColor: 'rgba(72,187,120,0.15)' }]}>
+                  <Feather name="check-circle" size={48} color="#48BB78" />
+                </View>
 
-              {/* Botõezinhos estilo switch - limpar dados ao mudar Role */}
-              <View style={styles.roleToggleContainer}>
-                <TouchableOpacity
-                  style={[styles.roleBtn, role === 'aluno' && styles.roleBtnActive]}
-                  onPress={() => {
-                    setRole('aluno');
-                    setFormData(prev => ({ ...prev, matriculaVeiculo: '', cartaConducao: '' }));
-                  }}
-                  activeOpacity={0.8}
+                <Text style={[styles.formTitle, { fontSize: 22, marginTop: 16, color: '#48BB78' }]}>
+                  Solicitação Enviada!
+                </Text>
+
+                <Text style={styles.successDescription}>
+                  Seus dados escolares foram encaminhados com sucesso para a <Text style={{fontWeight: 'bold', color: '#FFF'}}>Coordenação de Transportes da Prefeitura</Text>.
+                </Text>
+
+                <View style={styles.protocolBox}>
+                  <View style={styles.protocolRow}>
+                    <Text style={styles.protocolLabel}>Aluno:</Text>
+                    <Text style={styles.protocolValue}>{formData.nome}</Text>
+                  </View>
+                  <View style={styles.protocolRow}>
+                    <Text style={styles.protocolLabel}>Instituição:</Text>
+                    <Text style={styles.protocolValue}>{formData.escola || 'Instituição Informada'}</Text>
+                  </View>
+                  <View style={styles.protocolRow}>
+                    <Text style={styles.protocolLabel}>Status:</Text>
+                    <Text style={[styles.protocolValue, { color: '#F5A623', fontWeight: 'bold' }]}>
+                      ⏳ Em Análise Presencial
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.successHint}>
+                  Assim que a documentação for conferida com a secretaria de educação, seu assento e linha serão vinculados automaticamente.
+                </Text>
+
+                <TouchableOpacity 
+                  style={[styles.btnRegistar, { marginTop: 20 }]} 
+                  onPress={() => router.replace('/')}
                 >
-                  <FontAwesome5 name="user-graduate" size={14} color={role === 'aluno' ? theme.darkBlue : theme.textMain} style={{marginRight: 6}} />
-                  <Text style={[styles.roleText, role === 'aluno' && styles.roleTextActive]}>
-                    Aluno
-                  </Text>
+                  <Text style={styles.btnRegistarText}>Voltar ao Início</Text>
                 </TouchableOpacity>
+              </View>
+            ) : (
+              /* FORMULARIO DE SOLICITACAO ESTUDANTIL */
+              <View style={styles.formContainer}>
+                
+                <Text style={styles.formTitle}>Cadastro de Estudante</Text>
+                <Text style={styles.formSubtitle}>
+                  Envie seus dados para a validação da sua vaga no transporte universitário municipal
+                </Text>
 
-                <TouchableOpacity
-                  style={[styles.roleBtn, role === 'motorista' && styles.roleBtnActive]}
-                  onPress={() => {
-                    setRole('motorista');
-                    setFormData(prev => ({ ...prev, escola: '', matriculaEscolar: '' }));
+                {/* Aviso para Motoristas */}
+                <View style={styles.driverCallout}>
+                  <FontAwesome5 name="info-circle" size={14} color="#94A3B8" />
+                  <Text style={styles.driverCalloutText}>
+                    Motoristas devem solicitar credenciamento diretamente na Secretaria de Transportes.
+                  </Text>
+                </View>
+
+                <View style={styles.divider} />
+
+                <TextInput 
+                  style={styles.inputSimple} 
+                  placeholder="Nome Completo *" 
+                  placeholderTextColor={theme.textLight}
+                  value={formData.nome}
+                  onChangeText={(v) => handleInputChange('nome', v)}
+                />
+                
+                <TextInput 
+                  style={[styles.inputSimple, cpfError ? { borderColor: '#EF4444' } : {}]} 
+                  placeholder="CPF do Estudante *" 
+                  keyboardType="number-pad" 
+                  autoCapitalize="none" 
+                  placeholderTextColor={theme.textLight}
+                  value={formatarCPF(formData.cpf)}
+                  onChangeText={(v) => {
+                    setCpfError('');
+                    handleInputChange('cpf', limparCPF(v));
                   }}
-                  activeOpacity={0.8}
+                  maxLength={14}
+                />
+                {cpfError ? <Text style={{ color: '#EF4444', fontSize: 13, marginTop: -5, marginBottom: 10 }}>{cpfError}</Text> : null}
+
+                <TextInput 
+                  style={styles.inputSimple} 
+                  placeholder="WhatsApp / Telefone *" 
+                  keyboardType="phone-pad" 
+                  placeholderTextColor={theme.textLight}
+                  value={formatarTelefone(formData.telefone)}
+                  onChangeText={(v) => handleInputChange('telefone', limparTelefone(v))}
+                  maxLength={15}
+                />
+
+                <ExpandableSelect
+                  value={formData.cidade}
+                  onSelect={handleCidadeSelect}
+                  options={cidadeSuggestions}
+                  placeholder="Cidade de Origem"
+                />
+
+                <TextInput 
+                  style={styles.inputSimple} 
+                  placeholder="E-mail (opcional)" 
+                  keyboardType="email-address" 
+                  autoCapitalize="none" 
+                  placeholderTextColor={theme.textLight}
+                  value={formData.email}
+                  onChangeText={(v) => handleInputChange('email', v)}
+                />
+
+                {formData.cidade ? (
+                  <ExpandableSelect
+                    value={formData.escola}
+                    onSelect={handleInstituicaoSelect}
+                    options={instituicoesFiltradas}
+                    placeholder="Selecione a Instituição / Faculdade"
+                  />
+                ) : (
+                  <View style={[styles.inputSimple, styles.disabledInput, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
+                    <Text style={{ color: theme.textLight, fontSize: 15 }}>Selecione sua cidade primeiro</Text>
+                  </View>
+                )}
+
+                <TextInput 
+                  style={styles.inputSimple} 
+                  placeholder="Nº da Matrícula Escolar (opcional)" 
+                  placeholderTextColor={theme.textLight}
+                  value={formData.matriculaEscolar}
+                  onChangeText={(v) => handleInputChange('matriculaEscolar', v)}
+                />
+
+                <TextInput 
+                  style={styles.inputSimple} 
+                  placeholder="Ponto de Embarque pretendido" 
+                  placeholderTextColor={theme.textLight}
+                  value={formData.pontoEmbarque}
+                  onChangeText={(v) => handleInputChange('pontoEmbarque', v)}
+                />
+
+                {/* Seletor de Turno */}
+                <Text style={styles.inputLabel}>Turno das Aulas:</Text>
+                <View style={styles.turnoRow}>
+                  {(['Matutino', 'Vespertino', 'Noturno'] as const).map((t) => (
+                    <TouchableOpacity
+                      key={t}
+                      style={[styles.turnoBtn, turno === t && styles.turnoBtnActive]}
+                      onPress={() => setTurno(t)}
+                    >
+                      <Text style={[styles.turnoText, turno === t && styles.turnoTextActive]}>{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TextInput 
+                  style={styles.inputSimple} 
+                  placeholder="Criar uma Senha (padrão: 123456)" 
+                  secureTextEntry 
+                  placeholderTextColor={theme.textLight}
+                  value={formData.password}
+                  onChangeText={(v) => handleInputChange('password', v)}
+                />
+
+                <TextInput 
+                  style={styles.inputSimple} 
+                  placeholder="Confirmar Senha" 
+                  secureTextEntry 
+                  placeholderTextColor={theme.textLight}
+                  value={formData.confirmPassword}
+                  onChangeText={(v) => handleInputChange('confirmPassword', v)}
+                />
+
+                <Text style={styles.termsText}>
+                  Ao solicitar o acesso, você autoriza a conferência dos seus dados escolares pela administração pública responsável pelo transporte.
+                </Text>
+
+                <TouchableOpacity 
+                  style={[styles.btnRegistar, loading && styles.btnDisabled]} 
+                  onPress={handleRegisto}
+                  disabled={loading}
                 >
-                  <FontAwesome5 name="user-tie" size={14} color={role === 'motorista' ? theme.darkBlue : theme.textMain} style={{marginRight: 6}} />
-                  <Text style={[styles.roleText, role === 'motorista' && styles.roleTextActive]}>
-                    Motorista
+                  <Text style={styles.btnRegistarText}>
+                    {loading ? 'Enviando...' : 'Enviar Solicitação de Acesso'}
                   </Text>
                 </TouchableOpacity>
               </View>
-
-              {/* Linha separadora pra dar um respiro no visual */}
-              <View style={styles.divider} />
-
-              <TextInput 
-                style={styles.inputSimple} 
-                placeholder="Nome Completo" 
-                placeholderTextColor={theme.textLight}
-                value={formData.nome}
-                onChangeText={(v) => handleInputChange('nome', v)}
-              />
-              <TextInput 
-                style={[styles.inputSimple, cpfError && role === 'aluno' ? { borderColor: '#EF4444' } : {}]} 
-                placeholder={role === 'aluno' ? 'CPF' : 'E-mail'} 
-                keyboardType={role === 'aluno' ? 'number-pad' : 'email-address'} 
-                autoCapitalize="none" 
-                placeholderTextColor={theme.textLight}
-                value={role === 'aluno' ? formatarCPF(formData.cpf) : formData.email}
-                onChangeText={(v) => {
-                  setCpfError('');
-                  handleInputChange(role === 'aluno' ? 'cpf' : 'email', role === 'aluno' ? limparCPF(v) : v);
-                }}
-                maxLength={role === 'aluno' ? 14 : undefined}
-              />
-              {cpfError && role === 'aluno' ? <Text style={{ color: '#EF4444', fontSize: 13, marginTop: -5, marginBottom: 10 }}>{cpfError}</Text> : null}
-              <TextInput 
-                style={styles.inputSimple} 
-                placeholder="(XX) XXXXX-XXXX" 
-                keyboardType="phone-pad" 
-                placeholderTextColor={theme.textLight}
-                value={formatarTelefone(formData.telefone)}
-                onChangeText={(v) => handleInputChange('telefone', limparTelefone(v))}
-                maxLength={15}
-              />
-              <ExpandableSelect
-                value={formData.cidade}
-                onSelect={handleCidadeSelect}
-                options={cidadeSuggestions}
-                placeholder="Selecione a Cidade"
-              />
-
-              {/* Aqui é a mágica: muda os campos de acordo com a aba que a pessoa escolheu lá em cima */}
-              {role === 'aluno' ? (
-                <>
-                  <TextInput 
-                    style={styles.inputSimple} 
-                    placeholder="E-mail" 
-                    keyboardType="email-address" 
-                    autoCapitalize="none" 
-                    placeholderTextColor={theme.textLight}
-                    value={formData.email}
-                    onChangeText={(v) => handleInputChange('email', v)}
-                  />
-                  {formData.cidade ? (
-                    <ExpandableSelect
-                      value={formData.escola}
-                      onSelect={handleInstituicaoSelect}
-                      options={instituicoesFiltradas}
-                      placeholder="Selecione a Instituição"
-                    />
-                  ) : (
-                    <View style={[styles.inputSimple, styles.disabledInput, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-                      <Text style={{ color: theme.textLight, fontSize: 15 }}>Selecione uma cidade primeiro</Text>
-                    </View>
-                  )}
-                  
-                </>
-              ) : (
-                <>
-                  <TextInput 
-                    style={styles.inputSimple} 
-                    placeholder="Matrícula do Veículo (Placa)" 
-                    placeholderTextColor={theme.textLight}
-                    value={formData.matriculaVeiculo}
-                    onChangeText={(v) => handleInputChange('matriculaVeiculo', v)}
-                    maxLength={7}
-                    autoCapitalize="characters"
-                  />
-                  <TextInput 
-                    style={styles.inputSimple} 
-                    placeholder="Número da Carta de Condução" 
-                    placeholderTextColor={theme.textLight}
-                    value={formData.cartaConducao}
-                    onChangeText={(v) => handleInputChange('cartaConducao', v)}
-                    keyboardType="numeric"
-                    maxLength={11}
-                  />
-                </>
-              )}
-
-              <TextInput 
-                style={styles.inputSimple} 
-                placeholder="Criar uma Senha" 
-                secureTextEntry 
-                placeholderTextColor={theme.textLight}
-                value={formData.password}
-                onChangeText={(v) => handleInputChange('password', v)}
-              />
-              <TextInput 
-                style={styles.inputSimple} 
-                placeholder="Confirmar Senha" 
-                secureTextEntry 
-                placeholderTextColor={theme.textLight}
-                value={formData.confirmPassword}
-                onChangeText={(v) => handleInputChange('confirmPassword', v)}
-              />
-
-              <Text style={styles.termsText}>
-                Ao clicar em "Registar", você concorda com os nossos <Text style={{fontWeight: 'bold', color: theme.gold}}>Termos de Uso</Text> e <Text style={{fontWeight: 'bold', color: theme.gold}}>Política de Privacidade</Text>.
-              </Text>
-
-              <TouchableOpacity 
-                style={[styles.btnRegistar, loading && styles.btnDisabled]} 
-                onPress={handleRegisto}
-                disabled={loading}
-              >
-                <Text style={styles.btnRegistarText}>
-                  {loading ? 'A criar conta...' : 'Concluir Registo'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            )}
 
             <View style={styles.footerLinks}>
-              {/* Link extra caso a pessoa já tenha conta e tenha entrado aqui sem querer */}
               <TouchableOpacity style={styles.loginLinkBtn} onPress={() => router.replace('/')}>
-                <Text style={styles.loginLinkText}>Já tem uma conta? <Text style={{fontWeight: 'bold', color: theme.gold}}>Inicie sessão</Text></Text>
+                <Text style={styles.loginLinkText}>Já tem cadastro liberado? <Text style={{fontWeight: 'bold', color: theme.gold}}>Inicie sessão</Text></Text>
               </TouchableOpacity>
             </View>
             
-            {/* Só um espacinho no final pro scroll não ficar colado na borda */}
             <View style={{ height: 30 }} />
           </ScrollView>
           </KeyboardAvoidingView>
@@ -342,25 +404,44 @@ const result: RegisterResponse = await register(data);
   );
 }
 
-// Os estilos tão todos aqui embaixo pra não poluir o código lá em cima
 const styles = StyleSheet.create({
   container: { flex: 1 },
   backgroundImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', resizeMode: 'cover' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20 },
   backBtn: { padding: 5 },
-  headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF' },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFFFFF' },
   scrollContent: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20, paddingBottom: 100 },
   
   formContainer: { width: '100%', maxWidth: 450, backgroundColor: '#233248', padding: 24, borderRadius: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 8, marginBottom: 20, borderWidth: 1, borderColor: '#37474F' },
-  formTitle: { fontSize: 18, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 15, textAlign: 'center' },
+  formTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 6, textAlign: 'center' },
+  formSubtitle: { fontSize: 13, color: '#94A3B8', textAlign: 'center', marginBottom: 16, lineHeight: 18 },
 
-  roleToggleContainer: { flexDirection: 'row', backgroundColor: '#121A2F', borderRadius: 24, padding: 4, marginBottom: 15, borderWidth: 1, borderColor: '#37474F' },
-  roleBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 20 },
-  roleBtnActive: { backgroundColor: '#F5A623', shadowColor: '#F5A623', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 4, elevation: 4 },
-  roleText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
-  roleTextActive: { color: '#1A253A' },
+  driverCallout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#121A2F',
+    borderWidth: 1,
+    borderColor: '#37474F',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  driverCalloutText: {
+    flex: 1,
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 16,
+  },
 
   divider: { height: 1, backgroundColor: '#37474F', marginBottom: 20 },
+
+  inputLabel: { color: '#FFF', fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 4 },
+  turnoRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  turnoBtn: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#121A2F', borderWidth: 1, borderColor: '#37474F', alignItems: 'center' },
+  turnoBtnActive: { backgroundColor: '#F5A623', borderColor: '#F5A623' },
+  turnoText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  turnoTextActive: { color: '#1A253A', fontWeight: 'bold' },
 
   inputSimple: { height: 50, backgroundColor: '#121A2F', borderRadius: 25, marginBottom: 16, paddingHorizontal: 20, color: '#FFF', fontSize: 15, borderWidth: 1, borderColor: '#37474F' },
   disabledInput: { justifyContent: 'center' },
@@ -368,10 +449,19 @@ const styles = StyleSheet.create({
   termsText: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginBottom: 20, marginTop: 5, lineHeight: 18 },
 
   btnRegistar: { height: 54, backgroundColor: '#F5A623', borderRadius: 27, justifyContent: 'center', alignItems: 'center', width: '100%', shadowColor: '#F5A623', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
-  btnRegistarText: { color: '#1A253A', fontSize: 18, fontWeight: 'bold' },
+  btnRegistarText: { color: '#1A253A', fontSize: 16, fontWeight: 'bold' },
   btnDisabled: { opacity: 0.6 },
   
+  /* Estilos do Card de Sucesso */
+  successIconCircle: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  successDescription: { color: '#CBD5E1', fontSize: 14, textAlign: 'center', lineHeight: 22, marginTop: 8, paddingHorizontal: 10 },
+  protocolBox: { width: '100%', backgroundColor: '#121A2F', borderRadius: 16, padding: 16, marginTop: 20, borderWidth: 1, borderColor: '#37474F' },
+  protocolRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  protocolLabel: { color: '#94A3B8', fontSize: 13 },
+  protocolValue: { color: '#FFF', fontSize: 13, fontWeight: '600', maxWidth: '65%', textAlign: 'right' },
+  successHint: { color: '#94A3B8', fontSize: 12, textAlign: 'center', lineHeight: 18, marginTop: 16, paddingHorizontal: 12 },
+
   footerLinks: { alignItems: 'center', width: '100%', marginTop: 10 },
   loginLinkBtn: { padding: 15, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 25, width: '100%', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  loginLinkText: { color: '#94A3B8', fontSize: 15 },
+  loginLinkText: { color: '#94A3B8', fontSize: 14 },
 });

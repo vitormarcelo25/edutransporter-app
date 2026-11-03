@@ -7,17 +7,18 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
 import { getAdminDashboard, AdminDashboardResponse, AdminStats } from '@/services/api';
+import { Alert } from '@/components/Alert';
 
 const MENU_ITEMS = [
+  { id: 'usuarios', title: 'Usuários & Solicitações', subtitle: 'Aprovar alunos e cadastrar motoristas', icon: 'users', color: '#4299E1', route: '/admin/gerenciar-usuarios', badge: 'Novas' },
   { id: 'rotas', title: 'Gerenciar Rotas', subtitle: 'Criar, editar e excluir rotas', icon: 'route', color: '#48BB78', route: '/admin/gerenciar-rotas' },
   { id: 'avisos', title: 'Gerenciar Avisos', subtitle: 'Enviar avisos aos usuários', icon: 'bell', color: '#F5A623', route: '/admin/gerenciar-avisos' },
   { id: 'feriados', title: 'Feriados', subtitle: 'Dias sem transporte', icon: 'calendar', color: '#9F7AEA', route: '/admin/gerenciar-feriados' },
-  { id: 'usuarios', title: 'Usuários', subtitle: 'Alunos, motoristas e admins', icon: 'users', color: '#4299E1', route: '/admin/gerenciar-usuarios' },
   { id: 'convites', title: 'Gerar Convites', subtitle: 'Códigos para novos admins', icon: 'key', color: '#EF4444', route: '/admin/gerar-convites' },
 ];
 
@@ -133,7 +134,14 @@ export default function AdminDashboard() {
                   <Feather name={item.icon as any} size={18} color={item.color} />
                 </View>
                 <View style={styles.menuInfo}>
-                  <Text style={[styles.menuTitle, { color: theme.textMain }]}>{item.title}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={[styles.menuTitle, { color: theme.textMain }]}>{item.title}</Text>
+                    {item.badge && (
+                      <View style={{ backgroundColor: '#EF4444', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ color: '#FFF', fontSize: 10, fontWeight: 'bold' }}>{item.badge}</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.menuSubtitle, { color: theme.subtext }]}>{item.subtitle}</Text>
                 </View>
                 <Feather name="chevron-right" size={18} color={theme.subtext} />

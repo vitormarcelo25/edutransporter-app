@@ -17,9 +17,9 @@ import {
   TextInput, 
   Platform,
   StatusBar,
-  KeyboardAvoidingView,
-  Alert
+  KeyboardAvoidingView
 } from 'react-native';
+import { Alert } from '@/components/Alert';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 

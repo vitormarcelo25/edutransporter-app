@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { Feather, FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { useApp } from '../_layout';
 import { getRotaDoDia, confirmarPresenca, cancelarPresenca, Parada, Rota, ConfirmacaoResponse } from '../../services/api';
@@ -25,7 +26,7 @@ export default function HomeScreen() {
       const result: ConfirmacaoResponse = await confirmarPresenca(userData.id);
       if (result.success) {
         setConfirmouPresenca(true);
-        if (result.assento) setAssentoAutomatico(result.assento);
+        if (result.assento !== undefined) setAssentoAutomatico(Number(result.assento) || 1);
         if (result.ordem) setOrdemChegada(result.ordem);
         await loadRotaData();
       } else {
@@ -83,8 +84,8 @@ export default function HomeScreen() {
         setRota(response.rota);
         const meuAluno = response.rota.alunos.find((a: any) => a.id === userData?.id);
         if (meuAluno) {
-          setConfirmouPresenca(meuAluno.confirmouPresenca);
-          setAssentoAutomatico(meuAluno.assentoAutomatico || null);
+          setConfirmouPresenca(Boolean(meuAluno.confirmouPresenca));
+          setAssentoAutomatico(meuAluno.assentoAutomatico ? Number(meuAluno.assentoAutomatico) : null);
           setOrdemChegada(meuAluno.ordemChegada || null);
         }
       }
@@ -154,9 +155,18 @@ export default function HomeScreen() {
               onPress={() => router.push('/listas')}
               activeOpacity={0.9}
             >
-              {/* Badge Rota */}
-              <View style={[styles.heroBadge, { backgroundColor: theme.gold }]}>
-                <Text style={styles.heroBadgeText}>ROTA {rota?.tipo || mockRotaInfo.tipo}</Text>
+              <LinearGradient
+                colors={['rgba(255,255,255,0.03)', 'rgba(255,255,255,0)']}
+                style={StyleSheet.absoluteFill}
+              />
+              
+              <View style={styles.heroHeader}>
+                {/* Badge Rota */}
+                <View style={[styles.heroBadge, { backgroundColor: theme.gold + '20' }]}>
+                  <FontAwesome5 name="bus-alt" size={12} color={theme.gold} style={{marginRight: 6}} />
+                  <Text style={[styles.heroBadgeText, { color: theme.gold }]}>ROTA {rota?.tipo || mockRotaInfo.tipo}</Text>
+                </View>
+                <View style={[styles.pulseStatus, { backgroundColor: '#48BB78' }]} />
               </View>
 
               {/* Título */}
@@ -165,21 +175,31 @@ export default function HomeScreen() {
               </Text>
 
               {/* Info Grid - Sistema de Confirmação */}
-              <View style={styles.heroInfoGrid}>
+              <View style={[styles.heroInfoGrid, { backgroundColor: theme.inputBg }]}>
                 <View style={styles.heroInfoItem}>
-                  <FontAwesome5 name="chair" size={16} color={confirmouPresenca ? '#48BB78' : theme.gold} />
-                  <Text style={[styles.heroInfoLabel, { color: theme.subtext }]}>Assento</Text>
-                  <Text style={[styles.heroInfoValue, { color: theme.text }]}>
-                    {assentoAutomatico ? `#${assentoAutomatico}` : 'A confirmar'}
-                  </Text>
+                  <View style={[styles.iconCircleLg, { backgroundColor: confirmouPresenca ? '#48BB7820' : theme.gold + '20' }]}>
+                    <FontAwesome5 name="chair" size={16} color={confirmouPresenca ? '#48BB78' : theme.gold} />
+                  </View>
+                  <View style={styles.heroInfoTextCol}>
+                    <Text style={[styles.heroInfoLabel, { color: theme.subtext }]}>Assento</Text>
+                    <Text style={[styles.heroInfoValue, { color: theme.text }]}>
+                      {assentoAutomatico ? `#${assentoAutomatico}` : 'A confirmar'}
+                    </Text>
+                  </View>
                 </View>
 
+                <View style={[styles.heroInfoDivider, { backgroundColor: theme.border }]} />
+
                 <View style={styles.heroInfoItem}>
-                  <MaterialCommunityIcons name="account-group" size={16} color={theme.gold} />
-                  <Text style={[styles.heroInfoLabel, { color: theme.subtext }]}>Presentes</Text>
-                  <Text style={[styles.heroInfoValue, { color: theme.text }]}>
-                    {rota?.alunos.filter((a: any) => a.presente).length || 0}/40
-                  </Text>
+                  <View style={[styles.iconCircleLg, { backgroundColor: '#4299E120' }]}>
+                    <MaterialCommunityIcons name="account-group" size={18} color="#4299E1" />
+                  </View>
+                  <View style={styles.heroInfoTextCol}>
+                    <Text style={[styles.heroInfoLabel, { color: theme.subtext }]}>Presentes</Text>
+                    <Text style={[styles.heroInfoValue, { color: theme.text }]}>
+                      {rota?.alunos.filter((a: any) => a.presente).length || 0}/40
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -187,18 +207,22 @@ export default function HomeScreen() {
               {userRole === 'aluno' && (
                 <View style={styles.confirmacaoContainer}>
                   {confirmouPresenca ? (
-                    <>
-                      <View style={[styles.statusConfirmado, { backgroundColor: '#48BB78' }]}>
-                        <Feather name="check-circle" size={16} color="#FFFFFF" />
-                        <Text style={styles.statusConfirmadoText}>Confirmado!</Text>
-                      </View>
+                    <View style={styles.confirmadoWrapper}>
+                      <LinearGradient
+                        colors={['#48BB78', '#38A169']}
+                        start={{x: 0, y: 0}} end={{x: 1, y: 0}}
+                        style={styles.statusConfirmadoGlow}
+                      >
+                        <Feather name="check-circle" size={18} color="#FFFFFF" />
+                        <Text style={styles.statusConfirmadoText}>Presença Confirmada</Text>
+                      </LinearGradient>
                       {ordemChegada && (
                         <Text style={[styles.ordemText, { color: theme.subtext }]}>
-                          Você é o {ordemChegada}º a confirmar
+                          Você é o <Text style={{fontWeight: 'bold', color: theme.text}}>{ordemChegada}º</Text> a confirmar
                         </Text>
                       )}
                       <TouchableOpacity
-                        style={[styles.cancelarBtn, { borderColor: '#EF4444' }]}
+                        style={[styles.cancelarBtn, { borderColor: theme.border, backgroundColor: theme.inputBg }]}
                         onPress={handleCancelarPresenca}
                         disabled={loadingConfirmacao}
                       >
@@ -206,32 +230,51 @@ export default function HomeScreen() {
                           {loadingConfirmacao ? 'Cancelando...' : 'Cancelar Presença'}
                         </Text>
                       </TouchableOpacity>
-                    </>
+                    </View>
                   ) : (
                     <TouchableOpacity
-                      style={[styles.confirmarBtn, { backgroundColor: theme.gold }]}
                       onPress={handleConfirmarPresenca}
                       disabled={loadingConfirmacao}
+                      style={styles.confirmarBtnWrapper}
+                      activeOpacity={0.8}
                     >
-                      <Feather name="check" size={20} color="#1A253A" />
-                      <Text style={[styles.confirmarBtnText, { color: '#1A253A' }]}>
-                        {loadingConfirmacao ? 'Confirmando...' : 'Confirmar Presença'}
-                      </Text>
+                      <LinearGradient
+                        colors={[theme.gold, '#D69E2E']}
+                        start={{x: 0, y: 0}} end={{x: 1, y: 0}}
+                        style={styles.confirmarBtn}
+                      >
+                        <Feather name="check" size={20} color="#1A253A" />
+                        <Text style={[styles.confirmarBtnText, { color: '#1A253A' }]}>
+                          {loadingConfirmacao ? 'Confirmando...' : 'Confirmar Presença'}
+                        </Text>
+                      </LinearGradient>
                     </TouchableOpacity>
                   )}
                 </View>
               )}
 
               {/* Barra de Lotação */}
-              <View style={[styles.lotacaoBar, { backgroundColor: theme.inputBg }]}>
-                <View style={[styles.lotacaoFill, { width: `${progressLotacao}%`, backgroundColor: '#F472B6' }]} />
+              <View style={styles.lotacaoContainer}>
+                <View style={styles.lotacaoHeader}>
+                  <Text style={[styles.barraLabel, { color: theme.subtext }]}>Vagas no ônibus</Text>
+                  <Text style={[styles.barraLabel, { color: theme.text, fontWeight: 'bold' }]}>
+                    {40 - (rota?.alunos.filter((a: any) => a.presente).length || 0)} disp.
+                  </Text>
+                </View>
+                <View style={[styles.lotacaoBar, { backgroundColor: theme.border }]}>
+                  <LinearGradient
+                    colors={['#F472B6', '#D53F8C']}
+                    start={{x: 0, y: 0}} end={{x: 1, y: 0}}
+                    style={[styles.lotacaoFill, { width: `${progressLotacao}%` }]} 
+                  />
+                </View>
               </View>
-              <Text style={[styles.barraLabel, { color: theme.subtext }]}>Vagas disponíveis no ônibus</Text>
 
-              <View style={styles.heroFooter}>
+              <View style={[styles.heroFooter, { borderTopColor: theme.border }]}>
                 <Text style={[styles.heroTapHint, { color: theme.subtext }]}>
-                  Toque para ver cronograma →
+                  Toque para ver cronograma
                 </Text>
+                <Feather name="arrow-right" size={14} color={theme.subtext} />
               </View>
             </TouchableOpacity>
 
@@ -364,7 +407,7 @@ export default function HomeScreen() {
           <>
             {/* Painel de Gestão do Motorista */}
             <TouchableOpacity 
-              style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+              style={[styles.busCard, { backgroundColor: theme.card, borderColor: theme.border }]}
               onPress={() => router.push('/listas')}
               activeOpacity={0.9}
             >
@@ -635,122 +678,168 @@ const styles = StyleSheet.create({
 
   scroll: { padding: 20 },
 
-  /* HERO CARD */
+  /* HERO CARD ENHANCEMENTS */
   heroCard: { 
-    padding: 18, 
-    borderRadius: 20, 
+    padding: 20, 
+    borderRadius: 24, 
     borderWidth: 1, 
     marginBottom: 25, 
     elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    overflow: 'hidden',
+  },
+  heroHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   heroBadge: {
-    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
-  heroBadgeText: { color: '#1A253A', fontSize: 10, fontWeight: 'bold' },
-  heroTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 16 },
+  heroBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  pulseStatus: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    shadowColor: '#48BB78',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  heroTitle: { fontSize: 24, fontWeight: '900', marginBottom: 20, letterSpacing: -0.5 },
   
   heroInfoGrid: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 20,
   },
   heroInfoItem: {
-    alignItems: 'center',
-  },
-  heroInfoLabel: { fontSize: 10, marginTop: 4 },
-  heroInfoValue: { fontSize: 14, fontWeight: 'bold' },
-
-  lotacaoBar: {
-    height: 6,
-    borderRadius: 3,
-    marginBottom: 6,
-    overflow: 'hidden',
-  },
-  lotacaoFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  barraLabel: { fontSize: 10, marginBottom: 12 },
-
-  /* BARRA DE PROGRESSO DO PERCURSO */
-  percursoContainer: {
-    marginBottom: 8,
-  },
-  percursoRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    gap: 12,
   },
-  percursoLabel: { fontSize: 11, marginLeft: 4 },
-  percursoValue: { fontSize: 11, fontWeight: 'bold', marginLeft: 'auto' },
-  percursoBar: {
+  iconCircleLg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroInfoTextCol: {
+    flex: 1,
+  },
+  heroInfoLabel: { fontSize: 11, fontWeight: '600', marginBottom: 2 },
+  heroInfoValue: { fontSize: 15, fontWeight: '800' },
+  heroInfoDivider: {
+    width: 1,
+    height: '80%',
+    marginHorizontal: 10,
+  },
+
+  lotacaoContainer: {
+    marginBottom: 20,
+  },
+  lotacaoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  lotacaoBar: {
     height: 8,
     borderRadius: 4,
     overflow: 'hidden',
   },
-  percursoFill: {
+  lotacaoFill: {
     height: '100%',
     borderRadius: 4,
   },
+  barraLabel: { fontSize: 12 },
 
   heroFooter: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    gap: 6,
   },
-  heroTapHint: { fontSize: 12 },
+  heroTapHint: { fontSize: 13, fontWeight: '600' },
 
-  /* SISTEMA DE CONFIRMAÇÃO */
+  /* SISTEMA DE CONFIRMAÇÃO ENHANCEMENTS */
   confirmacaoContainer: {
-    marginTop: 12,
-    marginBottom: 12,
-    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  confirmarBtnWrapper: {
+    shadowColor: '#F6E05E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   confirmarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 24,
-    borderRadius: 12,
-    gap: 8,
+    borderRadius: 16,
+    gap: 10,
   },
   confirmarBtnText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: 'bold',
   },
-  statusConfirmado: {
+  confirmadoWrapper: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  statusConfirmadoGlow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    gap: 6,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    gap: 8,
+    width: '100%',
+    shadowColor: '#48BB78',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   statusConfirmadoText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   ordemText: {
-    fontSize: 12,
-    marginTop: 8,
+    fontSize: 13,
+    marginTop: 12,
   },
   cancelarBtn: {
-    marginTop: 10,
-    paddingVertical: 10,
+    marginTop: 12,
+    paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
+    width: '100%',
+    alignItems: 'center',
   },
   cancelarBtnText: {
     fontSize: 14,

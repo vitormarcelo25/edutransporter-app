@@ -10,13 +10,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { Colors } from '../constants/theme';
+import { storageHelper, setOnUnauthorized } from '../services/client';
 
 export type UserRole = 'aluno' | 'motorista' | 'admin';
 export type AdminSection = 'dashboard' | 'rotas' | 'avisos' | 'feriados' | 'usuarios';
 
-const AUTH_TOKEN_KEY = 'auth_token';
-const USER_ROLE_KEY = 'user_role';
-const USER_DATA_KEY = 'user_data';
+const AUTH_TOKEN_KEY = 'auth_token_v2';
+const USER_ROLE_KEY = 'user_role_v2';
+const USER_DATA_KEY = 'user_data_v2';
 
 interface UserData {
   id: string;
@@ -68,13 +69,19 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
   const isAdmin = userRole === 'admin';
 
-  // Carrega auth persistido ao iniciar
+  // Carrega auth persistido ao iniciar e registra interceptor de 401
   useEffect(() => {
+    setOnUnauthorized(() => {
+      setAuthTokenState(null);
+      setUserDataState(null);
+      setUserRole('aluno');
+    });
+
     (async () => {
       try {
-        const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
-        const role = await SecureStore.getItemAsync(USER_ROLE_KEY);
-        const dataStr = await SecureStore.getItemAsync(USER_DATA_KEY);
+        const token = await storageHelper.getItem(AUTH_TOKEN_KEY);
+        const role = await storageHelper.getItem(USER_ROLE_KEY);
+        const dataStr = await storageHelper.getItem(USER_DATA_KEY);
 
         if (token && role && dataStr) {
           setAuthTokenState(token);
@@ -88,6 +95,10 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         setIsLoadingAuth(false);
       }
     })();
+
+    return () => {
+      setOnUnauthorized(null);
+    };
   }, []);
 
   const toggleTheme = () => {
@@ -105,9 +116,9 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     setUserDataState(user);
     setUserRole(role);
     try {
-      await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
-      await SecureStore.setItemAsync(USER_ROLE_KEY, role);
-      await SecureStore.setItemAsync(USER_DATA_KEY, JSON.stringify(user));
+      await storageHelper.setItem(AUTH_TOKEN_KEY, token);
+      await storageHelper.setItem(USER_ROLE_KEY, role);
+      await storageHelper.setItem(USER_DATA_KEY, JSON.stringify(user));
     } catch (e) {
       console.error('Erro ao salvar auth:', e);
     }
@@ -118,9 +129,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     setUserDataState(null);
     setUserRole('aluno');
     try {
-      await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
-      await SecureStore.deleteItemAsync(USER_ROLE_KEY);
-      await SecureStore.deleteItemAsync(USER_DATA_KEY);
+      await storageHelper.clearAuth();
     } catch (e) {
       console.error('Erro ao limpar auth:', e);
     }

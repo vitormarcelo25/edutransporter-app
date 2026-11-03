@@ -17,34 +17,37 @@ import { Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useApp } from '../contexts/AppContext';
 import { useToast } from '../contexts/ToastContext';
-
-const ADMIN_CODE = process.env.EXPO_PUBLIC_ADMIN_CODE || '';
+import { adminLogin } from '../services/api';
 
 export default function AdminLogin() {
   const router = useRouter();
-  const { theme, setUserRole } = useApp();
+  const { theme, setAuth } = useApp();
   const { addToast } = useToast();
   
   const [adminKey, setAdminKey] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleAdminLogin = () => {
+  const handleAdminLogin = async () => {
     if (!adminKey.trim()) {
       addToast('error', 'Digite a chave de acesso');
       return;
     }
 
-    if (adminKey.trim() !== ADMIN_CODE) {
-      addToast('error', 'Chave de acesso incorreta');
-      return;
-    }
-
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const result = await adminLogin(adminKey);
+      if (result.success && result.token && result.user) {
+        await setAuth(result.token, result.user, 'admin');
+        addToast('success', 'Acesso administrativo autorizado');
+        router.replace('/admin');
+      } else {
+        addToast('error', result.message || 'Chave de acesso incorreta');
+      }
+    } catch (err: any) {
+      addToast('error', err?.message || 'Não foi possível validar a chave de acesso');
+    } finally {
       setLoading(false);
-      setUserRole('admin');
-      router.replace('/(tabs)/home');
-    }, 1000);
+    }
   };
 
   return (
@@ -103,7 +106,7 @@ export default function AdminLogin() {
                   disabled={loading}
                 >
                   <Text style={styles.btnText}>
-                    {loading ? 'Verificando...' : 'Entrar'}
+                    {loading ? 'Acessando...' : 'Entrar'}
                   </Text>
                 </TouchableOpacity>
 

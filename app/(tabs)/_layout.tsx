@@ -1,11 +1,15 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import { Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../_layout';
 
 export default function TabsLayout() {
-  const { theme } = useApp();
+  const { theme, authToken, isLoadingAuth } = useApp();
+
+  if (!isLoadingAuth && !authToken) {
+    return <Redirect href="/(auth)" />;
+  }
 
   return (
     <Tabs

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, Text, Animated, Easing, Dimensions, StatusBar } from 'react-native';
 import { Redirect } from 'expo-router';
 import { FontAwesome5, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useApp } from '../contexts/AppContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SPLASH_DURATION = 3800;
@@ -45,6 +46,7 @@ function FloatingParticle({ delay, startX, startY, size, anim }: {
    Componente principal - Splash Screen Profissional
 ============================================================ */
 export default function Index() {
+  const { authToken, userRole, isLoadingAuth } = useApp();
   const [showSplash, setShowSplash] = useState(true);
   const [displayedText, setDisplayedText] = useState('');
   const fullText = 'EduTransporter';
@@ -198,6 +200,12 @@ export default function Index() {
   }, []);
 
   if (!showSplash) {
+    if (isLoadingAuth) {
+      return <View style={{ flex: 1, backgroundColor: '#1A253A' }} />;
+    }
+    if (authToken) {
+      return <Redirect href={userRole === 'admin' ? '/admin' : '/(tabs)/home'} />;
+    }
     return <Redirect href="/(auth)" />;
   }
 

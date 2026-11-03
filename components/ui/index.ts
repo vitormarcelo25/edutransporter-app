@@ -8,7 +8,6 @@
 
 export { LoadingSpinner, LoadingDots, LoadingScreen, SkeletonCard } from './LoadingSpinner';
 
-export { LoadingSpinner, LoadingDots, LoadingScreen, SkeletonCard } from './LoadingSpinner';
 export { EmptyState, EmptyStates } from './EmptyState';
 export { AnimatedButton, AnimatedIconButton } from './AnimatedComponents';
 export { CustomInput } from './CustomInput';
