@@ -297,6 +297,63 @@ export interface ConvitesResponse {
 }
 
 // ==========================================
+// HELPERS DE NORMALIZAÇÃO (backend -> app)
+// ==========================================
+
+/** Backend devolve datas em ISO; o app usa texto pt-BR. */
+const formatarDataApi = (valor?: string | null): string => {
+  if (!valor) return '';
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return String(valor);
+  return data.toLocaleDateString('pt-BR');
+};
+
+const formatarDataHoraApi = (valor?: string | null): string => {
+  if (!valor) return '';
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return String(valor);
+  return data.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const formatarHoraApi = (valor?: string | null): string => {
+  if (!valor) return '';
+  const match = String(valor).match(/(\d{2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]}` : String(valor);
+};
+
+const normalizarTipoAviso = (tipo?: string | null): Aviso['tipo'] => {
+  const valor = String(tipo || 'INFO').toUpperCase();
+  if (valor === 'URGENTE') return 'urgente';
+  if (valor === 'OK' || valor === 'SUCESSO') return 'sucesso';
+  return 'info';
+};
+
+const normalizarAviso = (a: any): Aviso => ({
+  id: String(a?.id ?? ''),
+  tipo: normalizarTipoAviso(a?.tipo),
+  titulo: a?.titulo || '',
+  descricao: a?.descricao || '',
+  data: formatarDataHoraApi(a?.data),
+  icon: a?.icon || undefined,
+});
+
+const normalizarTipoViagem = (tipo?: string | null): 'Ida' | 'Volta' =>
+  String(tipo || '').toUpperCase() === 'VOLTA' ? 'Volta' : 'Ida';
+
+const normalizarStatusRota = (status?: string | null): Rota['status'] => {
+  const valor = String(status || '').toUpperCase();
+  if (valor === 'EM_ANDAMENTO') return 'em_andamento';
+  if (valor === 'ENCERRADA') return 'encerrada';
+  return 'agendada';
+};
+
+// ==========================================
 // DADOS DE FALLBACK (MOCK RESILIENTE)
 // ==========================================
 
@@ -557,40 +614,71 @@ export const register = async (data: {
 // 2. TELAS DE ALUNO: ROTAS, PRESENÇA E AVISOS
 // ==========================================
 
+/** Busca a viagem do dia (ou a primeira cadastrada) no backend real. */
+const obterViagemAtual = async (): Promise<any | null> => {
+  const response = await apiClient.get<any>('/api/viagens');
+  const lista = Array.isArray(response.data) ? response.data : [];
+  if (!lista.length) return null;
+  const hoje = new Date().toISOString().slice(0, 10);
+  return lista.find((v: any) => String(v.data || '').slice(0, 10) === hoje) || lista[0];
+};
+
 export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
   try {
-    const params = alunoId ? { alunoId } : {};
-    const response = await apiClient.get<any>('/rotas/hoje', { params });
-    const data = response.data;
+    // Endpoint real do backend: /api/viagens + /paradas + /presencas
+    const viagem = await obterViagemAtual();
+    if (viagem) {
+      let paradasApi: any[] = [];
+      let presencasApi: any[] = [];
 
-    if (data.success !== false && (data.rota || data.id)) {
-      const rawRota = data.rota || data;
-      const alunosFormatados: RotaAluno[] = (rawRota.alunos || []).map((a: any) => ({
-        id: String(a.id || a.alunoId || a.usuarioId),
-        nome: a.nome,
-        escola: a.escola || rawRota.escola || '',
-        parada: a.parada || a.pontoEmbarque || '',
-        presente: Boolean(a.presente),
-        confirmouPresenca: Boolean(a.confirmouPresenca || a.confirmado),
-        assentoAutomatico: a.assentoAutomatico || a.assento || undefined,
-        ordemChegada: a.ordemChegada || a.ordem_chegada || undefined,
+      try {
+        const respParadas = await apiClient.get<any[]>(`/api/viagens/${viagem.id}/paradas`);
+        paradasApi = Array.isArray(respParadas.data) ? respParadas.data : [];
+      } catch {
+        paradasApi = [];
+      }
+
+      try {
+        const respPresencas = await apiClient.get<any[]>(`/api/viagens/${viagem.id}/presencas`);
+        presencasApi = Array.isArray(respPresencas.data) ? respPresencas.data : [];
+      } catch {
+        presencasApi = [];
+      }
+
+      const paradas: Parada[] = paradasApi.map((p: any) => ({
+        id: String(p.ordem ?? ''),
+        nome: p.nome || '',
+        endereco: p.nome || '',
+        latitude: Number(p.latitude) || 0,
+        longitude: Number(p.longitude) || 0,
       }));
 
-      const rotaFinal: Rota = {
-        id: String(rawRota.id),
-        nome: rawRota.nome || 'Linha Universitária 01',
-        escola: rawRota.escola || 'Faculdade Maurício de Nassau',
-        horario: rawRota.horario || '17:45',
-        tipo: rawRota.tipo || 'Ida',
-        status: rawRota.status || 'agendada',
-        paradas: rawRota.paradas || PARADAS_MOCK,
-        alunos: alunosFormatados,
-      };
+      const alunos: RotaAluno[] = presencasApi.map((p: any, i: number) => ({
+        id: String(p.alunoCpf ?? ''),
+        nome: p.alunoNome || '',
+        escola: viagem.nomeRota || '',
+        parada: '',
+        presente: Boolean(p.presente),
+        confirmouPresenca: Boolean(p.presente),
+        ordemChegada: i + 1,
+      }));
 
-      return { success: true, rota: rotaFinal };
+      return {
+        success: true,
+        rota: {
+          id: String(viagem.id),
+          nome: viagem.nomeRota || 'Rota',
+          escola: viagem.veiculoModelo || '',
+          horario: formatarHoraApi(viagem.horario),
+          tipo: normalizarTipoViagem(viagem.tipo),
+          status: normalizarStatusRota(viagem.status),
+          paradas,
+          alunos,
+        },
+      };
     }
   } catch (err: any) {
-    console.warn('Backend rotas/hoje indisponível:', err?.message || err);
+    console.warn('Backend /api/viagens indisponível:', err?.message || err);
   }
 
   // Fallback Mock com lista de passageiros e status
@@ -640,73 +728,81 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
 
 export const confirmarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
   try {
-    const response = await apiClient.post<any>('/presenca/confirmar', { alunoId });
-    const data = response.data;
-    if (data.success !== false) {
+    // Endpoint real: POST /api/viagens/{viagemId}/presencas
+    const viagem = await obterViagemAtual();
+    if (viagem) {
+      const response = await apiClient.post<any>(`/api/viagens/${viagem.id}/presencas`, {
+        alunoCpf: alunoId,
+        presente: true,
+      });
+      const data = response.data;
       return {
         success: true,
-        message: data.message || 'Presença confirmada!',
-        assento: data.assento || '3A',
-        ordem: data.ordem || 3,
+        message: 'Presença confirmada!',
+        assento: data?.id || '3A',
+        ordem: data?.id || 3,
       };
     }
-    return { success: false, message: data.message || 'Não foi possível confirmar presença.' };
   } catch (err: any) {
-    console.warn('Backend presenca/confirmar indisponível:', err?.message || err);
-    return {
-      success: true,
-      message: 'Presença confirmada com sucesso (local)!',
-      assento: 3,
-      ordem: 3,
-    };
+    console.warn('Backend confirmação de presença indisponível:', err?.message || err);
   }
+  return {
+    success: true,
+    message: 'Presença confirmada com sucesso (local)!',
+    assento: 3,
+    ordem: 3,
+  };
 };
 
 export const cancelarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
   try {
-    const response = await apiClient.post<any>('/presenca/cancelar', { alunoId });
-    const data = response.data;
-    if (data.success !== false) {
-      return { success: true, message: data.message || 'Presença cancelada com sucesso.' };
+    // Endpoint real: DELETE /api/viagens/{viagemId}/presencas/{alunoCpf}
+    const viagem = await obterViagemAtual();
+    if (viagem) {
+      await apiClient.delete<any>(`/api/viagens/${viagem.id}/presencas/${encodeURIComponent(alunoId)}`);
+      return { success: true, message: 'Presença cancelada com sucesso.' };
     }
-    return { success: false, message: data.message || 'Erro ao cancelar presença.' };
   } catch (err: any) {
-    console.warn('Backend presenca/cancelar indisponível:', err?.message || err);
-    return { success: true, message: 'Presença cancelada (local).' };
+    console.warn('Backend cancelamento de presença indisponível:', err?.message || err);
   }
+  return { success: true, message: 'Presença cancelada (local).' };
 };
 
 export const marcarPresenca = async (alunoId: string, presente: boolean): Promise<PresencaResponse> => {
   try {
-    const response = await apiClient.post<any>('/presenca/marcar', {
-      alunoId,
-      presente: presente ? 1 : 0,
-    });
-    return {
-      success: true,
-      message: response.data?.message || (presente ? 'Presença confirmada!' : 'Aluno marcado como ausente'),
-    };
+    // Endpoint real: POST /api/viagens/{viagemId}/presencas
+    const viagem = await obterViagemAtual();
+    if (viagem) {
+      await apiClient.post<any>(`/api/viagens/${viagem.id}/presencas`, {
+        alunoCpf: alunoId,
+        presente,
+      });
+      return {
+        success: true,
+        message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
+      };
+    }
   } catch (err: any) {
-    console.warn('Backend presenca/marcar indisponível:', err?.message || err);
-    return {
-      success: true,
-      message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
-    };
+    console.warn('Backend marcação de presença indisponível:', err?.message || err);
   }
+  return {
+    success: true,
+    message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
+  };
 };
 
 export const getAvisos = async (): Promise<AvisosResponse> => {
   try {
-    const response = await apiClient.get<any>('/avisos');
-    const data = response.data;
-    if (Array.isArray(data)) {
-      return { success: true, avisos: data };
-    }
-    if (data.avisos) {
-      return { success: true, avisos: data.avisos };
+    // Endpoint real do backend Spring Boot
+    const response = await apiClient.get<any>('/api/avisos');
+    const lista = Array.isArray(response.data)
+      ? response.data
+      : response.data?.avisos;
+    if (Array.isArray(lista)) {
+      return { success: true, avisos: lista.map(normalizarAviso) };
     }
   } catch (err: any) {
-    console.warn('Backend avisos indisponível:', err?.message || err);
+    console.warn('Backend /api/avisos indisponível:', err?.message || err);
   }
 
   return {
@@ -721,49 +817,51 @@ export const getAvisos = async (): Promise<AvisosResponse> => {
 
 export const iniciarRota = async (rotaId: string): Promise<GpsResponse> => {
   try {
-    const response = await apiClient.post<any>('/rotas/iniciar', { rotaId });
+    // Endpoint real: POST /api/viagens/{viagemId}/iniciar
+    const response = await apiClient.post<any>(`/api/viagens/${rotaId}/iniciar`);
     return { success: true, message: response.data?.message || 'Rota iniciada com sucesso!' };
   } catch (err: any) {
-    console.warn('Backend rotas/iniciar indisponível:', err?.message || err);
+    console.warn('Backend iniciar viagem indisponível:', err?.message || err);
     return { success: true, message: 'Rota iniciada com sucesso (local)!' };
   }
 };
 
 export const encerrarRota = async (rotaId: string): Promise<GpsResponse> => {
   try {
-    const response = await apiClient.post<any>('/rotas/encerrar', { rotaId });
+    // Endpoint real: POST /api/viagens/{viagemId}/encerrar
+    const response = await apiClient.post<any>(`/api/viagens/${rotaId}/encerrar`);
     return { success: true, message: response.data?.message || 'Rota encerrada com sucesso!' };
   } catch (err: any) {
-    console.warn('Backend rotas/encerrar indisponível:', err?.message || err);
+    console.warn('Backend encerrar viagem indisponível:', err?.message || err);
     return { success: true, message: 'Rota encerrada com sucesso (local)!' };
   }
 };
 
 export const updateGpsPosition = async (data: { rotaId: string; position: GpsPosition }): Promise<GpsResponse> => {
   try {
-    const response = await apiClient.post<any>('/gps/update', {
-      rotaId: data.rotaId,
+    // Endpoint real: POST /api/viagens/{viagemId}/gps
+    await apiClient.post<any>(`/api/viagens/${data.rotaId}/gps`, {
       latitude: data.position.latitude,
       longitude: data.position.longitude,
-      velocidade: data.position.velocidade || 0,
-      heading: data.position.heading || 0,
-      timestamp: data.position.timestamp,
+      timestamp: data.position.timestamp || Date.now(),
     });
-    return { success: true, message: response.data?.message || 'GPS sincronizado' };
+    return { success: true, message: 'GPS sincronizado' };
   } catch (err: any) {
+    console.warn('Backend GPS indisponível:', err?.message || err);
     return { success: true };
   }
 };
 
 export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean; position?: { latitude: number; longitude: number }; message?: string }> => {
   try {
-    const response = await apiClient.get<any>(`/gps/posicao/${rotaId}`);
-    if (response.data && response.data.latitude) {
+    // Endpoint real: GET /api/viagens/{viagemId}/gps/ultima
+    const response = await apiClient.get<any>(`/api/viagens/${rotaId}/gps/ultima`);
+    if (response.data && response.data.latitude != null) {
       return {
         success: true,
         position: {
-          latitude: response.data.latitude,
-          longitude: response.data.longitude,
+          latitude: Number(response.data.latitude),
+          longitude: Number(response.data.longitude),
         },
       };
     }
@@ -779,16 +877,25 @@ export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean
 
 export const getHistorico = async (): Promise<HistoricoResponse> => {
   try {
-    const response = await apiClient.get<any>('/viagens/historico');
-    const data = response.data;
-    if (Array.isArray(data)) {
-      return { success: true, viagens: data };
-    }
-    if (data.viagens) {
-      return { success: true, viagens: data.viagens };
+    // Endpoint real do backend: /api/viagens
+    const response = await apiClient.get<any>('/api/viagens');
+    const lista = Array.isArray(response.data)
+      ? response.data
+      : response.data?.viagens;
+    if (Array.isArray(lista)) {
+      return {
+        success: true,
+        viagens: lista.map((v: any) => ({
+          id: String(v.id ?? ''),
+          data: formatarDataApi(v.data),
+          escola: v.nomeRota || 'Rota',
+          horario: formatarHoraApi(v.horario),
+          tipo: normalizarTipoViagem(v.tipo),
+        })),
+      };
     }
   } catch (err: any) {
-    console.warn('Backend historico indisponível:', err?.message || err);
+    console.warn('Backend /api/viagens indisponível:', err?.message || err);
   }
 
   return {
@@ -964,15 +1071,30 @@ export const getUsuariosAdmin = async (): Promise<{
 
 export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
   try {
-    const response = await apiClient.get<any>('/admin/dashboard');
-    if (response.data && response.data.success !== false) {
-      return {
-        success: true,
-        stats: response.data.stats || response.data,
-      };
-    }
+    // Monta as estatísticas a partir dos endpoints reais do backend
+    const [alunosResp, motoristasResp, avisosResp, viagensResp] = await Promise.all([
+      apiClient.get<any[]>('/api/usuarios/alunos'),
+      apiClient.get<any[]>('/api/usuarios/motoristas'),
+      apiClient.get<any[]>('/api/avisos'),
+      apiClient.get<any[]>('/api/viagens'),
+    ]);
+
+    const alunos = Array.isArray(alunosResp.data) ? alunosResp.data : [];
+    const motoristas = Array.isArray(motoristasResp.data) ? motoristasResp.data : [];
+    const avisos = Array.isArray(avisosResp.data) ? avisosResp.data : [];
+    const viagens = Array.isArray(viagensResp.data) ? viagensResp.data : [];
+
+    return {
+      success: true,
+      stats: {
+        totalAlunos: alunos.filter((a: any) => String(a.status || '').toUpperCase() === 'APROVADO').length,
+        totalMotoristas: motoristas.length,
+        totalRotasAtivas: viagens.length,
+        totalAvisos: avisos.length,
+      },
+    };
   } catch (err: any) {
-    console.warn('Backend admin/dashboard indisponível:', err?.message || err);
+    console.warn('Dashboard real indisponível, usando dados locais:', err?.message || err);
   }
 
   return {
@@ -988,12 +1110,24 @@ export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
 
 export const getAdminRotas = async (): Promise<AdminRotasResponse> => {
   try {
-    const response = await apiClient.get<any>('/admin/rotas');
-    if (response.data) {
-      return { success: true, rotas: response.data.rotas || response.data };
+    // Endpoint real do backend: /api/viagens (cada viagem é uma rota programada)
+    const response = await apiClient.get<any>('/api/viagens');
+    const lista = Array.isArray(response.data) ? response.data : response.data?.rotas;
+    if (Array.isArray(lista)) {
+      const rotas: Rota[] = lista.map((v: any) => ({
+        id: String(v.id ?? ''),
+        nome: v.nomeRota || 'Rota',
+        escola: v.veiculoModelo || '',
+        horario: formatarHoraApi(v.horario),
+        tipo: normalizarTipoViagem(v.tipo),
+        status: normalizarStatusRota(v.status),
+        paradas: [],
+        alunos: [],
+      }));
+      return { success: true, rotas };
     }
   } catch (err: any) {
-    console.warn('Backend admin/rotas indisponível:', err?.message || err);
+    console.warn('Backend /api/viagens indisponível:', err?.message || err);
   }
 
   return {
@@ -1200,12 +1334,40 @@ export const alterarSenha = async (senhaAtual: string, novaSenha: string): Promi
 
 export const getRotasAgenda = async (): Promise<AgendaResponse> => {
   try {
-    const response = await apiClient.get<any>('/rotas/agenda');
-    if (response.data) {
-      return { success: true, rotas: response.data.rotas || response.data };
+    // Endpoint real do backend: /api/viagens
+    const response = await apiClient.get<any>('/api/viagens');
+    const lista = Array.isArray(response.data) ? response.data : response.data?.rotas;
+    if (Array.isArray(lista) && lista.length > 0) {
+      return {
+        success: true,
+        rotas: lista.map((v: any) => {
+          const dataObj = v.data ? new Date(v.data) : null;
+          const dataValida = dataObj && !Number.isNaN(dataObj.getTime());
+          const dataCurta = dataValida
+            ? dataObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+            : '';
+          const diaSemana = dataValida
+            ? dataObj.toLocaleDateString('pt-BR', { weekday: 'long' })
+            : '';
+          const dataFormatada = dataCurta && diaSemana
+            ? `${dataCurta} - ${diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}`
+            : dataCurta;
+
+          return {
+            id: String(v.id ?? ''),
+            data: dataFormatada,
+            nome: v.nomeRota || 'Rota',
+            escola: v.veiculoModelo || '',
+            horario: formatarHoraApi(v.horario),
+            tipo: normalizarTipoViagem(v.tipo),
+            status: normalizarStatusRota(v.status),
+            paradas: [],
+          };
+        }),
+      };
     }
   } catch (err: any) {
-    console.warn('Backend rotas/agenda indisponível:', err?.message || err);
+    console.warn('Backend /api/viagens indisponível:', err?.message || err);
   }
 
   const hoje = new Date();
