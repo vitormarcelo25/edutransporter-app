@@ -17,9 +17,9 @@ echo ============================================
 echo   PRONTO! Abra: http://localhost:8081
 echo ============================================
 echo.
-echo   CPF: 71409312060
-echo   Senha: 123456
+echo   CPF: 16006485474
+echo   Senha: 12345
 echo.
-echo   Observacao: App rodando com dados mock.
-echo   Para conectar backend na nuvem, edite services/api.ts.
+echo   Backend na nuvem: https://backend-edutransporte.onrender.com
+echo   Admin: chave admin26
 pause
