@@ -679,53 +679,9 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
     }
   } catch (err: any) {
     console.warn('Backend /api/viagens indisponível:', err?.message || err);
+    return { success: false };
   }
-
-  // Fallback Mock com lista de passageiros e status
-  return {
-    success: true,
-    rota: {
-      id: '1',
-      nome: 'Linha 01 - Nassau Noturno',
-      escola: 'Faculdade Maurício de Nassau',
-      horario: '17:45',
-      tipo: 'Ida',
-      status: 'agendada',
-      paradas: PARADAS_MOCK,
-      alunos: [
-        {
-          id: '71409312060',
-          nome: 'Vitor Santana',
-          escola: 'Faculdade Maurício de Nassau',
-          parada: 'Av. Agamenon Magalhães, 120',
-          presente: false,
-          confirmouPresenca: false,
-        },
-        {
-          id: 'alu-2',
-          nome: 'Camila Ribeiro',
-          escola: 'Faculdade Maurício de Nassau',
-          parada: 'Rua das Flores, 45',
-          presente: true,
-          confirmouPresenca: true,
-          assentoAutomatico: 1,
-          ordemChegada: 1,
-        },
-        {
-          id: 'alu-3',
-          nome: 'Gabriel Souza',
-          escola: 'Faculdade Maurício de Nassau',
-          parada: 'IFPE Campus Caruaru',
-          presente: true,
-          confirmouPresenca: true,
-          assentoAutomatico: 2,
-          ordemChegada: 2,
-        },
-      ],
-    },
-  };
-};
-
+},
 export const confirmarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
   try {
     // Endpoint real: POST /api/viagens/{viagemId}/presencas
@@ -1100,17 +1056,16 @@ export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
   return {
     success: true,
     stats: {
-      totalAlunos: MOCK_ALUNOS_ATIVOS.length + 46,
-      totalMotoristas: MOCK_MOTORISTAS.length,
-      totalRotasAtivas: 4,
-      totalAvisos: MOCK_AVISOS.length,
+      totalAlunos: 0,
+      totalMotoristas: 0,
+      totalRotasAtivas: 0,
+      totalAvisos: 0,
     },
   };
 };
 
 export const getAdminRotas = async (): Promise<AdminRotasResponse> => {
   try {
-    // Endpoint real do backend: /api/viagens (cada viagem é uma rota programada)
     const response = await apiClient.get<any>('/api/viagens');
     const lista = Array.isArray(response.data) ? response.data : response.data?.rotas;
     if (Array.isArray(lista)) {
@@ -1130,31 +1085,7 @@ export const getAdminRotas = async (): Promise<AdminRotasResponse> => {
     console.warn('Backend /api/viagens indisponível:', err?.message || err);
   }
 
-  return {
-    success: true,
-    rotas: [
-      {
-        id: '1',
-        nome: 'Linha 01 - Nassau Noturno',
-        escola: 'Faculdade Maurício de Nassau',
-        horario: '17:45',
-        tipo: 'Ida',
-        status: 'agendada',
-        paradas: PARADAS_MOCK,
-        alunos: [],
-      },
-      {
-        id: '2',
-        nome: 'Linha 02 - IFPE Diurno',
-        escola: 'IFPE Campus Caruaru',
-        horario: '06:45',
-        tipo: 'Ida',
-        status: 'agendada',
-        paradas: PARADAS_MOCK,
-        alunos: [],
-      },
-    ],
-  };
+  return { success: true, rotas: [] };
 };
 
 export const createRota = async (data: CreateRotaInput): Promise<{ success: boolean; message: string }> => {
@@ -1185,12 +1116,12 @@ export const getFeriados = async (): Promise<FeriadosResponse> => {
     console.warn('Backend feriados indisponível:', err?.message || err);
   }
 
+  // Fallback: como o backend tem endpoint real, esta linha só será alcançada se o serviço cair completamente.
+  // Mantemos apenas 1 feriado ilustrativo para caso de emergência.
   return {
     success: true,
     feriados: [
       { id: '1', nome: 'Páscoa', data: '20/04/2026', motivo: 'Feriado religioso' },
-      { id: '2', nome: 'Tiradentes', data: '21/04/2026', motivo: 'Feriado nacional' },
-      { id: '3', nome: 'Dia do Trabalhador', data: '01/05/2026', motivo: 'Feriado nacional' },
     ],
   };
 };
@@ -1225,9 +1156,7 @@ export const getConvites = async (): Promise<ConvitesResponse> => {
 
   return {
     success: true,
-    convites: [
-      { id: '1', codigo: 'PREFEITURA-ADM-2026', usado: false, criadoEm: '15/09/2026', expiraEm: '31/12/2026' },
-    ],
+    convites: [],
   };
 };
 
@@ -1370,27 +1299,7 @@ export const getRotasAgenda = async (): Promise<AgendaResponse> => {
     console.warn('Backend /api/viagens indisponível:', err?.message || err);
   }
 
-  const hoje = new Date();
-  const rotas: RotaAgenda[] = [];
-  for (let i = 0; i < 5; i++) {
-    const data = new Date(hoje);
-    data.setDate(hoje.getDate() + i);
-    const dataStr = data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-    const diaSemana = data.toLocaleDateString('pt-BR', { weekday: 'long' });
-
-    rotas.push({
-      id: `${i}-ida`,
-      data: `${dataStr} - ${diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}`,
-      nome: 'Linha 01 - Nassau Noturno',
-      escola: 'Faculdade Maurício de Nassau',
-      horario: '17:45',
-      tipo: 'Ida',
-      status: 'agendada',
-      paradas: PARADAS_MOCK,
-    });
-  }
-
-  return { success: true, rotas };
+  return { success: true, rotas: [] };
 };
 
 export const fakeLogin = login;
