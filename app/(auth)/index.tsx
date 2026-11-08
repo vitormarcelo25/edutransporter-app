@@ -11,8 +11,9 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 /* Componentes nativos do React Native */
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
-  ScrollView, StatusBar, SafeAreaView, Dimensions, Animated, Easing 
+  ScrollView, StatusBar, Dimensions, Animated, Easing 
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 /* Icones do projeto */
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -282,7 +283,6 @@ export default function Index() {
         <Image 
           source={require('../../assets/foto-fundo.png')} 
           style={styles.backgroundImage}
-          pointerEvents="none"
         />
         <View style={styles.gridMesh} pointerEvents="none">
           {[...Array(20)].map((_, i) => (
@@ -741,20 +741,20 @@ export default function Index() {
 ============================================================ */
 const styles = StyleSheet.create({
 /* Container principal */
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: '#0B1120' },
   
   /* Camada de fundo (tudo here) */
-  backgroundLayer: { ...StyleSheet.absoluteFillObject, zIndex: 0 },
+  backgroundLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 },
   
   /* Imagem de fundo */
-  backgroundImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', resizeMode: 'cover' },
+  backgroundImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', resizeMode: 'cover', zIndex: -1 },
   
   /* Overlay leve */
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(18, 26, 47, 0.1)', zIndex: 1 },
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(18, 26, 47, 0.1)', zIndex: 0 },
   
   
   /* Mesh de linhas GPS */
-  gridMesh: { ...StyleSheet.absoluteFillObject, zIndex: 2 },
+  gridMesh: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 },
   gridLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: '#F5A623' },
   gridLineH: { position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: '#F5A623' },
   

@@ -14,14 +14,14 @@ import {
   Text, 
   View, 
   TouchableOpacity, 
-  SafeAreaView, 
   ScrollView, 
   Switch,
   Platform,
   Image
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useApp } from '../_layout';
 
 export default function Perfil() {
@@ -32,9 +32,6 @@ export default function Perfil() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Escondendo a barra nativa do Expo pra ficar um design mais limpo */}
-      <Stack.Screen options={{ headerShown: false }} />
-      
       {/* Imagem de fundo */}
       <Image 
         source={require('../../assets/plano-de-fundo-perfil.png')} 
@@ -187,13 +184,21 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { zIndex: 1 },
   backgroundImage: { 
-    ...StyleSheet.absoluteFillObject, 
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%', 
     height: '100%',
     zIndex: -1,
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     zIndex: 0,
   },
   overlayDark: {

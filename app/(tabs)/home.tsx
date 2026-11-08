@@ -100,8 +100,37 @@ export default function HomeScreen() {
   useFocusEffect(
     React.useCallback(() => {
       loadRotaData();
-    }, [])
+    }, [userData?.id])
   );
+
+  const calcularChegada = (saida: string, qtdParadas: number) => {
+    const partes = String(saida || '18:00').split(':');
+    let h = parseInt(partes[0], 10);
+    let m = parseInt(partes[1], 10);
+    if (isNaN(h) || isNaN(m)) {
+      h = 18;
+      m = 0;
+    }
+    const totalMin = h * 60 + m + Math.max(qtdParadas * 12, 35);
+    const horaFim = Math.floor(totalMin / 60) % 24;
+    const minFim = totalMin % 60;
+    return `${String(horaFim).padStart(2, '0')}:${String(minFim).padStart(2, '0')}`;
+  };
+
+  const calcularHorarioParada = (saida: string, index: number, total: number) => {
+    const partes = String(saida || '18:00').split(':');
+    let h = parseInt(partes[0], 10);
+    let m = parseInt(partes[1], 10);
+    if (isNaN(h) || isNaN(m)) {
+      h = 18;
+      m = 0;
+    }
+    const intervaloMin = Math.max(Math.round(40 / Math.max(total - 1, 1)), 8);
+    const totalMin = h * 60 + m + index * intervaloMin;
+    const hora = Math.floor(totalMin / 60) % 24;
+    const minuto = totalMin % 60;
+    return `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
+  };
 
   const mockRotaInfo = {
     escola: 'Faculdade Uninassau',
@@ -169,9 +198,12 @@ export default function HomeScreen() {
                 <View style={[styles.pulseStatus, { backgroundColor: '#48BB78' }]} />
               </View>
 
-              {/* Título */}
+              {/* Título da Rota e Destino */}
               <Text style={[styles.heroTitle, { color: theme.text }]}>
-                {rota?.escola || mockRotaInfo.escola}
+                {rota?.nome || rota?.escola || mockRotaInfo.escola}
+              </Text>
+              <Text style={[styles.heroSubtitle, { color: theme.subtext }]} numberOfLines={1}>
+                Destino: {rota?.escola || mockRotaInfo.escola}
               </Text>
 
               {/* Info Grid - Sistema de Confirmação */}
@@ -305,13 +337,17 @@ export default function HomeScreen() {
                   <View style={styles.rotaInfoItem}>
                     <MaterialCommunityIcons name="clock-outline" size={18} color={theme.gold} />
                     <Text style={[styles.rotaInfoLabel, { color: theme.subtext }]}>Saída</Text>
-                    <Text style={[styles.rotaInfoValue, { color: theme.text }]}>06:30</Text>
+                    <Text style={[styles.rotaInfoValue, { color: theme.text }]}>
+                      {rota?.horario || '18:00'}
+                    </Text>
                   </View>
                   <View style={styles.rotaInfoDivider} />
                   <View style={styles.rotaInfoItem}>
                     <MaterialCommunityIcons name="clock-check-outline" size={18} color="#48BB78" />
                     <Text style={[styles.rotaInfoLabel, { color: theme.subtext }]}>Chegada</Text>
-                    <Text style={[styles.rotaInfoValue, { color: '#48BB78' }]}>07:50</Text>
+                    <Text style={[styles.rotaInfoValue, { color: '#48BB78' }]}>
+                      {calcularChegada(rota?.horario || '18:00', rota?.paradas?.length || 4)}
+                    </Text>
                   </View>
                   <View style={styles.rotaInfoDivider} />
                   <View style={styles.rotaInfoItem}>
@@ -331,27 +367,27 @@ export default function HomeScreen() {
               ) : rota?.paradas && rota?.paradas?.length > 0 ? (
                 <View style={styles.paradasList}>
                   {rota?.paradas.map((parada, index) => {
-                    const isLast = index === (rota?.paradas?.length || 0) - 1;
+                    const totalParadas = rota.paradas.length;
+                    const isLast = index === totalParadas - 1;
                     const isPrimeira = index === 0;
-                    
-                    const horarios = ['06:30', '06:50', '07:15', '07:35', '07:50'];
-                    const icons = ['home', 'map-marker', 'map-marker', 'map-marker', 'school'];
-                    const badgeLabels = ['', '', '', '', 'Faculdade'];
-                    const hints = ['Ponto de embarque', '', '', '', 'Destino final'];
+
+                    const horarioParada = calcularHorarioParada(rota?.horario || '18:00', index, totalParadas);
+                    const badgeLabel = isPrimeira ? 'Partida' : isLast ? 'Destino Final' : `Parada #${index + 1}`;
+                    const hintText = isPrimeira ? 'Ponto de embarque inicial' : isLast ? 'Chegada à faculdade / polo' : 'Embarque de alunos';
                     
                     return (
-                      <View key={parada.id} style={styles.paradaCard}>
+                      <View key={parada.id || `parada-${index}`} style={styles.paradaCard}>
                         {/* Número da parada */}
                         <View style={[
                           styles.paradaNumber,
-                          { backgroundColor: isPrimeira ? theme.gold : isLast ? '#48BB78' : theme.subtext }
+                          { backgroundColor: isPrimeira ? theme.gold : isLast ? '#48BB78' : theme.inputBg, borderWidth: !isPrimeira && !isLast ? 1 : 0, borderColor: theme.border }
                         ]}>
                           {isPrimeira ? (
                             <MaterialCommunityIcons name="home" size={16} color="#1A253A" />
                           ) : isLast ? (
                             <MaterialCommunityIcons name="school" size={16} color="#FFFFFF" />
                           ) : (
-                            <Text style={styles.paradaNumberText}>{index + 1}</Text>
+                            <Text style={[styles.paradaNumberText, { color: theme.text }]}>{index + 1}</Text>
                           )}
                         </View>
                         
@@ -362,33 +398,32 @@ export default function HomeScreen() {
                               styles.paradaCardTime,
                               { color: isPrimeira ? theme.gold : isLast ? '#48BB78' : theme.text }
                             ]}>
-                              {horarios[index] || `07:${10 + index * 10}`}
+                              {horarioParada}
                             </Text>
-                            {badgeLabels[index] && (
-                              <View style={[
-                                styles.paradaBadge,
-                                { backgroundColor: isPrimeira ? theme.gold : '#48BB78' }
-                              ]}>
-                                <Text style={styles.paradaBadgeText}>{badgeLabels[index]}</Text>
-                              </View>
-                            )}
+                            <View style={[
+                              styles.paradaBadge,
+                              { backgroundColor: isPrimeira ? theme.gold : isLast ? '#48BB78' : 'rgba(245,166,35,0.15)' }
+                            ]}>
+                              <Text style={[styles.paradaBadgeText, !isPrimeira && !isLast && { color: theme.gold }]}>
+                                {badgeLabel}
+                              </Text>
+                            </View>
                           </View>
                           
                           <Text style={[styles.paradaCardNome, { color: theme.text }]}>{parada.nome}</Text>
                           <Text style={[styles.paradaCardEndereco, { color: theme.subtext }]} numberOfLines={1}>
-                            {parada.endereco}
+                            {parada.endereco || `${parada.nome}, Rota ${rota.nome}`}
                           </Text>
                           
-                          {hints[index] && (
-                            <View style={styles.paradaHintRow}>
-                              <Text style={[
-                                styles.paradaHintText,
-                                { color: isPrimeira ? theme.gold : '#48BB78' }
-                              ]}>
-                                {isPrimeira ? '🚐' : '🎓'} {hints[index]}
-                              </Text>
-                            </View>
-                          )}
+                          <View style={styles.paradaHintRow}>
+                            <Text style={[
+                              styles.paradaHintText,
+                              { color: isPrimeira ? theme.gold : isLast ? '#48BB78' : theme.subtext }
+                            ]}>
+                              {isPrimeira ? '🚐 ' : isLast ? '🎓 ' : '📍 '}
+                              {hintText}
+                            </Text>
+                          </View>
                         </View>
                       </View>
                     );
@@ -491,7 +526,7 @@ export default function HomeScreen() {
             {/* Admin Menu Card */}
             <TouchableOpacity
               style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={() => router.push('/admin/')}
+              onPress={() => router.push('/admin')}
               activeOpacity={0.9}
             >
               <View style={styles.adminMenuRow}>
@@ -715,7 +750,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  heroTitle: { fontSize: 24, fontWeight: '900', marginBottom: 20, letterSpacing: -0.5 },
+  heroTitle: { fontSize: 24, fontWeight: '900', marginBottom: 4, letterSpacing: -0.5 },
+  heroSubtitle: { fontSize: 13, fontWeight: '600', marginBottom: 16 },
   
   heroInfoGrid: {
     flexDirection: 'row',
@@ -1066,4 +1102,5 @@ const styles = StyleSheet.create({
   },
   iconCircle: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
   gridLabel: { fontSize: 12, fontWeight: 'bold' },
+  emptyText: { textAlign: 'center', padding: 20, fontSize: 14 },
 });

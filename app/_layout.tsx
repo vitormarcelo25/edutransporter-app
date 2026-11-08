@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Stack, useRouter } from 'expo-router';
-import { StatusBar, View, Platform } from 'react-native';
+import React, { useEffect } from 'react';
+import { Stack } from 'expo-router';
+import { View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '../contexts/AppContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { useNotifications } from '../hooks/useNotifications';
-import SplashScreen from '../components/SplashScreen';
+import { warmUpBackend } from '../services/api';
 
 export { useApp };
 
@@ -14,42 +15,16 @@ function NotificationsSetup() {
 }
 
 function RootLayoutNav() {
-  const { theme, isDark, isLoadingAuth } = useApp();
-  const router = useRouter();
-  const [splashFinished, setSplashFinished] = useState(false);
-  const isMobile = Platform.OS !== 'web';
+  const { theme, isDark } = useApp();
 
+  // Acorda o backend (Render free hiberna) em paralelo com a interface.
   useEffect(() => {
-    if (!isMobile) return;
-    const timer = setTimeout(() => {
-      setSplashFinished(true);
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, [isMobile]);
-
-  if (isMobile && !splashFinished) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#1A2436' }}>
-        <StatusBar barStyle="light-content" backgroundColor="#1A2436" />
-        <SplashScreen />
-      </View>
-    );
-  }
-
-  if (isLoadingAuth) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#1A253A', justifyContent: 'center', alignItems: 'center' }}>
-        <StatusBar barStyle="light-content" backgroundColor="#1A253A" />
-      </View>
-    );
-  }
+    warmUpBackend();
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar
-        barStyle={theme.status}
-        backgroundColor={isDark ? '#1A253A' : '#F8FAFC'}
-      />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       <NotificationsSetup />
 
@@ -57,6 +32,9 @@ function RootLayoutNav() {
         headerShown: false,
         contentStyle: { backgroundColor: theme.bg }
       }}>
+        {/* Ponto de Entrada / Splash Interativo */}
+        <Stack.Screen name="index" />
+
         {/* Grupos de Rotas Principais */}
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />

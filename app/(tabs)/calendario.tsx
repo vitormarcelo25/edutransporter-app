@@ -8,9 +8,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useApp } from '../_layout';
 import { getRotasAgenda, RotaAgenda, AgendaResponse } from '@/services/api';
 
@@ -85,7 +86,6 @@ export default function Calendario() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-        <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={theme.gold} />
           <Text style={[styles.loadingText, { color: theme.subtext }]}>Carregando...</Text>
@@ -96,7 +96,6 @@ export default function Calendario() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-      <Stack.Screen options={{ headerShown: false }} />
       
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>

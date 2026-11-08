@@ -375,7 +375,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#0D1520',
   },
   bgGradient1: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#0D1520',
   },
   bgGradient2: {

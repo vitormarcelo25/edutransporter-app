@@ -13,7 +13,7 @@ import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
 import { 
   getUsuariosAdmin, aprovarSolicitacao, recusarSolicitacao, cadastrarMotoristaAdmin,
-  SolicitacaoAluno, MotoristaCadastrado, AlunoCadastrado 
+  getAdminRotas, SolicitacaoAluno, MotoristaCadastrado, AlunoCadastrado 
 } from '../../services/api';
 
 const ROTAS_DISPONIVEIS = [
@@ -33,6 +33,7 @@ export default function GerenciarUsuarios() {
   const [motoristas, setMotoristas] = useState<MotoristaCadastrado[]>([]);
   const [alunos, setAlunos] = useState<AlunoCadastrado[]>([]);
   const [buscaAluno, setBuscaAluno] = useState('');
+  const [rotasDisponiveis, setRotasDisponiveis] = useState<string[]>(ROTAS_DISPONIVEIS);
 
   // Modal de Aprovação de Solicitação
   const [modalAprovarVisivel, setModalAprovarVisivel] = useState(false);
@@ -67,11 +68,19 @@ export default function GerenciarUsuarios() {
     } else {
       Alert.alert('Erro', res.message || 'Não foi possível carregar os usuários. Faça login novamente.');
     }
+
+    try {
+      const rotasRes = await getAdminRotas();
+      if (rotasRes.success && rotasRes.rotas.length > 0) {
+        const nomes = rotasRes.rotas.map((r) => r.nome);
+        setRotasDisponiveis(nomes);
+      }
+    } catch {}
   };
 
   const abrirModalAprovar = (sol: SolicitacaoAluno) => {
     setSolicitacaoSelecionada(sol);
-    setRotaSelecionada(ROTAS_DISPONIVEIS[0]);
+    setRotaSelecionada(rotasDisponiveis[0] || 'Linha 01 - Nassau Noturno');
     setModalAprovarVisivel(true);
   };
 
@@ -414,7 +423,7 @@ export default function GerenciarUsuarios() {
             </Text>
 
             <Text style={[styles.modalLabel, { color: theme.text }]}>Selecione a Linha de Ônibus:</Text>
-            {ROTAS_DISPONIVEIS.map((r) => (
+            {rotasDisponiveis.map((r) => (
               <TouchableOpacity
                 key={r}
                 style={[
@@ -520,7 +529,7 @@ export default function GerenciarUsuarios() {
               />
 
               <Text style={[styles.modalLabel, { color: theme.text, marginTop: 8 }]}>Linha Designada:</Text>
-              {ROTAS_DISPONIVEIS.map((r) => (
+              {rotasDisponiveis.map((r) => (
                 <TouchableOpacity
                   key={r}
                   style={[
