@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { Stack, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import * as Location from 'expo-location';
 import { useApp } from '../_layout';
 import {
@@ -355,7 +355,6 @@ export default function Mapa() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-        <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.gold} />
           <Text style={[styles.loadingText, { color: theme.subtext }]}>Carregando mapa da rota...</Text>
@@ -366,7 +365,6 @@ export default function Mapa() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <Stack.Screen options={{ headerShown: false }} />
 
       {/* Componente de Mapa Nativo / Web */}
       <MapViewComponent

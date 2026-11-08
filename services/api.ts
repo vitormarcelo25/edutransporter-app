@@ -578,11 +578,123 @@ export const login = async (
     }
 
     // ==========================================
-    // FALLBACK DE SEGURANÇA (MOCK RESILIENTE)
-    // Permite apresentação e testes imediatos
+    // 1. TENTATIVA NO SUPABASE / BACKEND OFICIAL
     // ==========================================
     if (roleFinal === 'aluno') {
-      // 1. Checa se o aluno já foi aprovado pelo Admin
+      try {
+        const respAluno = await apiClient.get<any[]>(`/aluno?cpf=eq.${cpfLimpo}&select=*`);
+        if (Array.isArray(respAluno.data) && respAluno.data.length > 0) {
+          const alunoDb = respAluno.data[0];
+
+          // Verifica status de aprovação
+          const statusDb = String(alunoDb.status || '').toUpperCase();
+          if (statusDb === 'PENDENTE') {
+            return {
+              success: false,
+              status: 'pendente',
+              message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
+            };
+          }
+          if (statusDb === 'RECUSADO') {
+            return {
+              success: false,
+              status: 'recusado',
+              message: `Sua solicitação foi recusada: ${alunoDb.motivo_recusa || 'Documentação não conferida.'}`,
+            };
+          }
+
+          // Descobre rota atribuída
+          let rotaAtribuida = 'Linha 01 - Nassau Noturno';
+          try {
+            const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
+            if (rawMap) {
+              const mapRotas: Record<string, string> = JSON.parse(rawMap);
+              if (mapRotas[cpfLimpo]) rotaAtribuida = mapRotas[cpfLimpo];
+            }
+          } catch {}
+
+          const userRetorno = {
+            id: String(alunoDb.cpf || cpfLimpo),
+            nome: alunoDb.nome_completo || 'Aluno',
+            email: valor.includes('@') ? valor : `${cpfLimpo}@aluno.edutransporte`,
+            role: 'aluno' as const,
+            rotaNome: rotaAtribuida,
+          };
+
+          await storageHelper.setItem('user_data_v2', JSON.stringify(userRetorno));
+
+          return {
+            success: true,
+            token: `jwt_supabase_${cpfLimpo}_${Date.now()}`,
+            user: userRetorno,
+            status: 'aprovado',
+            message: 'Login realizado com sucesso.',
+          };
+        }
+      } catch (errSupabase) {
+        console.warn('Erro ao consultar aluno no Supabase:', errSupabase);
+      }
+    } else {
+      // Motorista no Supabase
+      try {
+        const respMot = await apiClient.get<any[]>(`/motorista?cpf=eq.${cpfLimpo}&select=*`);
+        if (Array.isArray(respMot.data) && respMot.data.length > 0) {
+          const motDb = respMot.data[0];
+          
+          if (motDb.senha && pass.trim() !== String(motDb.senha).trim()) {
+            return {
+              success: false,
+              message: 'Senha incorreta para este motorista.',
+            };
+          }
+
+          const userRetorno = {
+            id: String(motDb.cpf || cpfLimpo),
+            nome: motDb.nome_completo || 'Motorista',
+            email: motDb.email || `${cpfLimpo}@motorista.edutransporte`,
+            role: 'motorista' as const,
+            rotaNome: 'Linha 01 - Nassau Noturno',
+          };
+
+          await storageHelper.setItem('user_data_v2', JSON.stringify(userRetorno));
+
+          return {
+            success: true,
+            token: `jwt_supabase_mot_${cpfLimpo}_${Date.now()}`,
+            user: userRetorno,
+            status: 'aprovado',
+            message: 'Login realizado com sucesso.',
+          };
+        }
+      } catch (errMot) {
+        console.warn('Erro ao consultar motorista no Supabase:', errMot);
+      }
+    }
+
+    // ==========================================
+    // 2. VERIFICAÇÃO LOCAL DE SOLICITAÇÕES / APROVAÇÕES
+    // ==========================================
+    if (roleFinal === 'aluno') {
+      let sol: SolicitacaoAluno | undefined;
+      try {
+        const rawSol = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
+        if (rawSol) {
+          const sols: SolicitacaoAluno[] = JSON.parse(rawSol);
+          sol = sols.find((s) => s.cpf === cpfLimpo);
+        }
+      } catch {}
+
+      if (!sol) {
+        sol = MOCK_SOLICITACOES.find((s) => s.cpf === cpfLimpo);
+      }
+
+      if (!sol) {
+        return {
+          success: false,
+          message: 'CPF não cadastrado no sistema. Por favor, faça sua solicitação de cadastro primeiro.',
+        };
+      }
+
       let estaAprovadoLocal = false;
       try {
         const rawAprov = await storageHelper.getItem(APROVACOES_STORAGE_KEY);
@@ -590,26 +702,15 @@ export const login = async (
         estaAprovadoLocal = aprovados.includes(cpfLimpo);
       } catch {}
 
-      // 2. Busca cadastro da solicitação (em memória ou no storage)
-      let sol = MOCK_SOLICITACOES.find((s) => s.cpf === cpfLimpo);
-      if (!sol) {
-        try {
-          const rawSol = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
-          if (rawSol) {
-            const sols: SolicitacaoAluno[] = JSON.parse(rawSol);
-            sol = sols.find((s) => s.cpf === cpfLimpo);
-          }
-        } catch {}
-      }
-
-      if (sol && !estaAprovadoLocal && sol.status === 'pendente') {
+      if (!estaAprovadoLocal && sol.status === 'pendente') {
         return {
           success: false,
           status: 'pendente',
           message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
         };
       }
-      if (sol && !estaAprovadoLocal && sol.status === 'recusada') {
+
+      if (!estaAprovadoLocal && sol.status === 'recusada') {
         return {
           success: false,
           status: 'recusado',
@@ -617,52 +718,19 @@ export const login = async (
         };
       }
 
-      // 3. Descobre a rota atribuída ao aluno pelo Admin
-      let rotaAtribuida = 'Linha 01 - Nassau Noturno';
+      let rotaAtribuida = sol.rotaNome || 'Linha 01 - Nassau Noturno';
       try {
         const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
         if (rawMap) {
           const mapRotas: Record<string, string> = JSON.parse(rawMap);
-          if (mapRotas[cpfLimpo]) {
-            rotaAtribuida = mapRotas[cpfLimpo];
-          }
+          if (mapRotas[cpfLimpo]) rotaAtribuida = mapRotas[cpfLimpo];
         }
       } catch {}
 
-      // Se ainda não encontrou no mapa direto, verifica se o CPF está dentro de alguma rota do Admin
-      if (rotaAtribuida === 'Linha 01 - Nassau Noturno') {
-        try {
-          const rawRotas = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-          if (rawRotas) {
-            const rotasSalvas: Rota[] = JSON.parse(rawRotas);
-            const rMatch = rotasSalvas.find(
-              (r) =>
-                (r as any).alunosIds?.includes(cpfLimpo) ||
-                r.alunos?.some((a) => a.id === cpfLimpo)
-            );
-            if (rMatch) {
-              rotaAtribuida = rMatch.nome;
-            }
-          }
-        } catch {}
-      }
-
-      const alunoAtivo = MOCK_ALUNOS_ATIVOS.find((a) => a.cpf === cpfLimpo) || {
-        id: cpfLimpo,
-        nome: sol?.nome || 'Aluno Cadastrado',
-        cpf: cpfLimpo,
-        email: sol?.email || `${cpfLimpo}@aluno.edutransporte`,
-        telefone: sol?.telefone || '81998324477',
-        cidade: sol?.cidade || 'Caruaru',
-        escola: sol?.escola || 'Faculdade Maurício de Nassau',
-        rotaNome: rotaAtribuida,
-        status: 'ativo' as const,
-      };
-
       const userRetorno = {
-        id: alunoAtivo.cpf,
-        nome: alunoAtivo.nome,
-        email: alunoAtivo.email,
+        id: sol.cpf,
+        nome: sol.nome,
+        email: sol.email || `${cpfLimpo}@aluno.edutransporte`,
         role: 'aluno' as const,
         rotaNome: rotaAtribuida,
       };
@@ -679,16 +747,30 @@ export const login = async (
         message: 'Login realizado com sucesso!',
       };
     } else {
-      const mot = MOCK_MOTORISTAS.find((m) => m.cpf === cpfLimpo) || MOCK_MOTORISTAS[0];
+      const mot = MOCK_MOTORISTAS.find((m) => m.cpf === cpfLimpo);
+      if (!mot) {
+        return {
+          success: false,
+          message: 'Motorista não encontrado no sistema.',
+        };
+      }
+
+      const userRetorno = {
+        id: mot.cpf,
+        nome: mot.nome,
+        email: `${mot.cpf}@motorista.edutransporte`,
+        role: 'motorista' as const,
+        rotaNome: 'Linha 01 - Nassau Noturno',
+      };
+
+      try {
+        await storageHelper.setItem('user_data_v2', JSON.stringify(userRetorno));
+      } catch {}
+
       return {
         success: true,
         token: `jwt_token_${mot.cpf}_${Date.now()}`,
-        user: {
-          id: mot.cpf,
-          nome: mot.nome,
-          email: `${mot.cpf}@motorista.edutransporte`,
-          role: 'motorista',
-        },
+        user: userRetorno,
         status: 'aprovado',
         message: 'Login realizado com sucesso!',
       };
@@ -870,6 +952,8 @@ export const ADMIN_ROTAS_STORAGE_KEY = 'edutransporte_admin_rotas';
 export const ALUNOS_ROTAS_STORAGE_KEY = 'edutransporte_alunos_rotas';
 export const SOLICITACOES_STORAGE_KEY = 'edutransporte_solicitacoes';
 export const APROVACOES_STORAGE_KEY = 'edutransporte_aprovacoes';
+export const ADMIN_AVISOS_STORAGE_KEY = 'edutransporte_admin_avisos';
+export const ADMIN_FERIADOS_STORAGE_KEY = 'edutransporte_admin_feriados';
 
 export const ROTAS_PADRAO_INICIAIS: Rota[] = [
   {
@@ -1125,23 +1209,72 @@ export const marcarPresenca = async (alunoId: string, presente: boolean): Promis
 };
 
 export const getAvisos = async (): Promise<AvisosResponse> => {
+  let avisosLocais: Aviso[] = [];
   try {
-    // Endpoint real do backend Spring Boot
-    const response = await apiClient.get<any>('/api/avisos');
-    const lista = Array.isArray(response.data)
-      ? response.data
-      : response.data?.avisos;
-    if (Array.isArray(lista)) {
-      return { success: true, avisos: lista.map(normalizarAviso) };
+    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        avisosLocais = parsed;
+      }
     }
-  } catch (err: any) {
-    console.warn('Backend /api/avisos indisponível:', err?.message || err);
+  } catch {}
+
+  if (avisosLocais.length === 0) {
+    avisosLocais = [...MOCK_AVISOS];
+    try {
+      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(avisosLocais));
+    } catch {}
   }
 
   return {
     success: true,
-    avisos: [...MOCK_AVISOS],
+    avisos: avisosLocais,
   };
+};
+
+export const createAviso = async (dados: {
+  titulo: string;
+  descricao: string;
+  tipo: 'urgente' | 'info' | 'sucesso';
+  rotaNome?: string;
+}): Promise<{ success: boolean; aviso?: Aviso; message?: string }> => {
+  if (!dados.titulo?.trim() || !dados.descricao?.trim()) {
+    return { success: false, message: 'Título e descrição são obrigatórios.' };
+  }
+
+  const agora = new Date();
+  const novoAviso: Aviso = {
+    id: `aviso_${Date.now()}`,
+    tipo: dados.tipo || 'info',
+    titulo: dados.titulo.trim(),
+    descricao: dados.descricao.trim(),
+    data: `Hoje, ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+    icon: dados.tipo === 'urgente' ? 'warning' : dados.tipo === 'sucesso' ? 'check-circle' : 'info',
+  };
+
+  try {
+    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
+    const lista: Aviso[] = raw ? JSON.parse(raw) : [...MOCK_AVISOS];
+    lista.unshift(novoAviso);
+    await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(lista));
+  } catch (err) {
+    console.warn('Erro ao salvar aviso no storage:', err);
+  }
+
+  return { success: true, aviso: novoAviso, message: 'Aviso publicado com sucesso!' };
+};
+
+export const deleteAviso = async (avisoId: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
+    if (raw) {
+      const lista: Aviso[] = JSON.parse(raw);
+      const filtrados = lista.filter((a) => a.id !== avisoId);
+      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(filtrados));
+    }
+  } catch {}
+  return { success: true, message: 'Aviso removido com sucesso!' };
 };
 
 // ==========================================
@@ -1814,42 +1947,72 @@ export const deleteRota = async (rotaId: string): Promise<{ success: boolean; me
   }
 };
 
+const FERIADOS_PADRAO: Feriado[] = [
+  { id: '1', nome: 'Páscoa', data: '20/04/2026', motivo: 'Feriado religioso (Sem transporte)' },
+  { id: '2', nome: 'Tiradentes', data: '21/04/2026', motivo: 'Feriado nacional (Sem transporte)' },
+  { id: '3', nome: 'Dia do Trabalho', data: '01/05/2026', motivo: 'Feriado nacional (Sem transporte)' },
+  { id: '4', nome: 'Semana de Avaliações', data: '15/05/2026', motivo: 'Horário especial de transporte' },
+];
+
 export const getFeriados = async (): Promise<FeriadosResponse> => {
+  let feriadosLocais: Feriado[] = [];
   try {
-    const response = await apiClient.get<any>('/admin/feriados');
-    if (response.data) {
-      return { success: true, feriados: response.data.feriados || response.data };
+    const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        feriadosLocais = parsed;
+      }
     }
-  } catch (err: any) {
-    console.warn('Backend feriados indisponível:', err?.message || err);
+  } catch {}
+
+  if (feriadosLocais.length === 0) {
+    feriadosLocais = [...FERIADOS_PADRAO];
+    try {
+      await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(feriadosLocais));
+    } catch {}
   }
 
-  // Fallback: como o backend tem endpoint real, esta linha só será alcançada se o serviço cair completamente.
-  // Mantemos apenas 1 feriado ilustrativo para caso de emergência.
   return {
     success: true,
-    feriados: [
-      { id: '1', nome: 'Páscoa', data: '20/04/2026', motivo: 'Feriado religioso' },
-    ],
+    feriados: feriadosLocais,
   };
 };
 
-export const createFeriado = async (data: { nome: string; data: string; motivo: string }): Promise<{ success: boolean; message: string }> => {
-  try {
-    const response = await apiClient.post<any>('/admin/feriados', data);
-    return { success: true, message: response.data?.message || 'Feriado criado com sucesso!' };
-  } catch (err: any) {
-    return { success: true, message: 'Feriado criado com sucesso!' };
+export const createFeriado = async (data: { nome: string; data: string; motivo: string }): Promise<{ success: boolean; feriado?: Feriado; message: string }> => {
+  if (!data.nome?.trim() || !data.data?.trim()) {
+    return { success: false, message: 'Nome e data são obrigatórios.' };
   }
+
+  const novoFeriado: Feriado = {
+    id: `feriado_${Date.now()}`,
+    nome: data.nome.trim(),
+    data: data.data.trim(),
+    motivo: data.motivo?.trim() || 'Evento escolar / Feriado',
+  };
+
+  try {
+    const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
+    const lista: Feriado[] = raw ? JSON.parse(raw) : [...FERIADOS_PADRAO];
+    lista.push(novoFeriado);
+    await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(lista));
+  } catch (err) {
+    console.warn('Erro ao salvar feriado no storage:', err);
+  }
+
+  return { success: true, feriado: novoFeriado, message: 'Evento/Feriado cadastrado com sucesso!' };
 };
 
 export const deleteFeriado = async (feriadoId: string): Promise<{ success: boolean; message: string }> => {
   try {
-    const response = await apiClient.delete<any>(`/admin/feriados/${feriadoId}`);
-    return { success: true, message: response.data?.message || 'Feriado excluído com sucesso!' };
-  } catch (err: any) {
-    return { success: true, message: 'Feriado excluído com sucesso!' };
-  }
+    const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
+    if (raw) {
+      const lista: Feriado[] = JSON.parse(raw);
+      const filtrados = lista.filter((f) => f.id !== feriadoId);
+      await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(filtrados));
+    }
+  } catch {}
+  return { success: true, message: 'Feriado excluído com sucesso!' };
 };
 
 export const getConvites = async (): Promise<ConvitesResponse> => {
@@ -1970,44 +2133,72 @@ export const alterarSenha = async (senhaAtual: string, novaSenha: string): Promi
 };
 
 export const getRotasAgenda = async (): Promise<AgendaResponse> => {
+  let viagensDb: any[] = [];
   try {
-    // Endpoint real do backend: /api/viagens
-    const response = await apiClient.get<any>('/api/viagens');
-    const lista = Array.isArray(response.data) ? response.data : response.data?.rotas;
-    if (Array.isArray(lista) && lista.length > 0) {
-      return {
-        success: true,
-        rotas: lista.map((v: any) => {
-          const dataObj = v.data ? new Date(v.data) : null;
-          const dataValida = dataObj && !Number.isNaN(dataObj.getTime());
-          const dataCurta = dataValida
-            ? dataObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-            : '';
-          const diaSemana = dataValida
-            ? dataObj.toLocaleDateString('pt-BR', { weekday: 'long' })
-            : '';
-          const dataFormatada = dataCurta && diaSemana
-            ? `${dataCurta} - ${diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}`
-            : dataCurta;
-
-          return {
-            id: String(v.id ?? ''),
-            data: dataFormatada,
-            nome: v.nomeRota || 'Rota',
-            escola: v.veiculoModelo || '',
-            horario: formatarHoraApi(v.horario),
-            tipo: normalizarTipoViagem(v.tipo),
-            status: normalizarStatusRota(v.status),
-            paradas: [],
-          };
-        }),
-      };
+    const response = await apiClient.get<any[]>('/viagem?select=*');
+    if (Array.isArray(response.data) && response.data.length > 0) {
+      viagensDb = response.data;
     }
   } catch (err: any) {
-    console.warn('Backend /api/viagens indisponível:', err?.message || err);
+    console.warn('Supabase /viagem indisponível para agenda:', err?.message || err);
   }
 
-  return { success: true, rotas: [] };
+  // Carrega rotas do Admin
+  let adminRotas: Rota[] = [];
+  try {
+    const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) adminRotas = parsed;
+    }
+  } catch {}
+
+  if (adminRotas.length === 0) {
+    adminRotas = [...ROTAS_PADRAO_INICIAIS];
+  }
+
+  // Gera lista dos próximos 14 dias
+  const rotasAgenda: RotaAgenda[] = [];
+  const hoje = new Date();
+
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(hoje);
+    d.setDate(hoje.getDate() + i);
+
+    // Pula fins de semana na agenda padrão
+    const diaSemanaNum = d.getDay();
+    if (diaSemanaNum === 0 || diaSemanaNum === 6) continue;
+
+    const dataCurta = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const diaSemana = d.toLocaleDateString('pt-BR', { weekday: 'long' });
+    const dataFormatada = `${dataCurta} - ${diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}`;
+
+    adminRotas.forEach((r, idx) => {
+      rotasAgenda.push({
+        id: `agenda_${r.id}_${i}_ida`,
+        data: dataFormatada,
+        nome: `${r.nome} (Ida)`,
+        escola: r.escola || 'Polo Universitário',
+        horario: r.horario || '17:45',
+        tipo: 'Ida',
+        status: i === 0 ? 'em_andamento' : 'agendada',
+        paradas: r.paradas || [],
+      });
+
+      rotasAgenda.push({
+        id: `agenda_${r.id}_${i}_volta`,
+        data: dataFormatada,
+        nome: `${r.nome} (Retorno)`,
+        escola: r.escola || 'Retorno Garagem',
+        horario: '22:30',
+        tipo: 'Volta',
+        status: 'agendada',
+        paradas: r.paradas || [],
+      });
+    });
+  }
+
+  return { success: true, rotas: rotasAgenda };
 };
 
 export const fakeLogin = login;

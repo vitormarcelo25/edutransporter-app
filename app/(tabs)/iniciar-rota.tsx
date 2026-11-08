@@ -12,7 +12,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useApp } from '../_layout';
 import { getRotaDoDia, iniciarRota, encerrarRota, updateGpsPosition, Rota, RotaResponse } from '@/services/api';
 import * as Location from 'expo-location';
@@ -196,7 +196,6 @@ export default function IniciarRota() {
   if (userRole !== 'motorista') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-        <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
             <Feather name="arrow-left" size={24} color={theme.text} />
@@ -216,8 +215,6 @@ export default function IniciarRota() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
-      <Stack.Screen options={{ headerShown: false }} />
-      
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
           <Feather name="arrow-left" size={24} color={theme.text} />

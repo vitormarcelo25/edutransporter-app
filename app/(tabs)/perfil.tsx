@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useApp } from '../_layout';
 
 export default function Perfil() {
@@ -32,9 +32,6 @@ export default function Perfil() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Escondendo a barra nativa do Expo pra ficar um design mais limpo */}
-      <Stack.Screen options={{ headerShown: false }} />
-      
       {/* Imagem de fundo */}
       <Image 
         source={require('../../assets/plano-de-fundo-perfil.png')} 

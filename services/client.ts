@@ -169,8 +169,9 @@ async function request<T = any>(endpoint: string, options: RequestOptions = {}):
       }
     }
 
-    if (response.status === 401) {
-      console.warn('Sessão expirada ou não autorizada (401). Limpando storage...');
+    // Só trata 401 como deslogamento se for especificamente em rota de validação de token
+    if (response.status === 401 && url.includes('/auth/verify')) {
+      console.warn('Token de sessão expirado. Limpando storage...');
       await storageHelper.clearAuth();
       if (unauthorizedHandler) {
         unauthorizedHandler();
