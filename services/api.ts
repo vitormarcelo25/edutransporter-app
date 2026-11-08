@@ -551,11 +551,9 @@ export const login = async (
       console.warn('Backend login falhou ou indisponível:', backendErr?.message || backendErr);
       
       // Se for credencial inválida (401), checa se é usuário do mock de emergência
-      const credencialInvalida = backendErr?.status === 401;
-      if (!credencialInvalida) {
-        // Erro de rede/timeout: permite fallback para o mock
-      } else {
-        // Senha/CPF realmente errados no backend
+      // 403 = cadastro pendente/recusado no backend: mostra a mensagem dele.
+      // 401 ou falha de rede: segue para a consulta direta no Supabase abaixo.
+      if (backendErr?.status === 403) {
         throw backendErr;
       }
     }
@@ -2542,6 +2540,12 @@ export const getMensagensRota = async (rotaIdOuNome: string): Promise<ChatMessag
         };
       });
 
+      // Remove cópias locais de mensagens que já chegaram ao banco
+      const assinatura = (m: ChatMessage) =>
+        `${String(m.autorId).replace(/\D/g, '')}|${m.texto.trim()}`;
+      const noBanco = new Set(msgsSupabase.map(assinatura));
+      mensagens = mensagens.filter((m) => m.id.startsWith('db_') || !noBanco.has(assinatura(m)));
+
       const mapMsgs = new Map<string, ChatMessage>();
       mensagens.forEach((m) => mapMsgs.set(m.id, m));
       msgsSupabase.forEach((m) => mapMsgs.set(m.id, m));
@@ -2604,6 +2608,7 @@ export const enviarMensagemRota = async (
       remetente_tipo: novaMensagem.autorRole === 'motorista' ? 'motorista' : 'aluno',
       texto: novaMensagem.texto,
       viagem_id: idViagemNum,
+      created_at: agora.toISOString(),
     });
     if (response?.ok || response?.status === 201) {
       novaMensagem.syncStatus = 'synced';

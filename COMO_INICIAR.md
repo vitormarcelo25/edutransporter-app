@@ -21,7 +21,7 @@ Se o duplo-clique não funcionar (abrir no Notepad), abra o PowerShell na pasta 
 Abra o navegador em **http://localhost:8081**
 
 ### Credenciais de teste
-- **CPF:** `16006485474` (160.064.854-74)
+- **CPF:** `16005485474` (160.054.854-74)
 - **Senha:** `12345`
 - **Admin:** chave `admin26`
 
@@ -100,6 +100,6 @@ npx vercel --prod                # publica o build novo
 ## Resumo Rápido
 
 - **No pitch day**: `git pull` + `.\pitch.bat` → abre `http://localhost:8081`
-- **Credenciais**: CPF `16006485474`, senha `12345`, admin `admin26`
+- **Credenciais**: CPF `16005485474`, senha `12345`, admin `admin26`
 - **Backend**: Render (`https://backend-edutransporte.onrender.com`)
 - **Se o login falhar**: rode `npx expo start --web -c` e recarregue com `Ctrl+Shift+R`
