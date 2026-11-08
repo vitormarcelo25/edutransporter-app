@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '../contexts/AppContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { useNotifications } from '../hooks/useNotifications';
+import { warmUpBackend } from '../services/api';
 
 export { useApp };
 
@@ -15,6 +16,11 @@ function NotificationsSetup() {
 
 function RootLayoutNav() {
   const { theme, isDark } = useApp();
+
+  // Acorda o backend (Render free hiberna) em paralelo com a interface.
+  useEffect(() => {
+    warmUpBackend();
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>

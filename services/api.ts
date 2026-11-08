@@ -2549,9 +2549,7 @@ export const getMensagensRota = async (rotaIdOuNome: string): Promise<ChatMessag
       await storageHelper.setItem(storageKey, JSON.stringify(mensagens));
     }
   } catch {
-    // Modo offline preservado
-  }
-    // Offline / fallback local resiliente
+    // Modo offline preservado: usa apenas as mensagens locais
   }
 
   return mensagens.sort((a, b) => a.timestamp - b.timestamp);

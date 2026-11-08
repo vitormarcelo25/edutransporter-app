@@ -106,7 +106,7 @@ export interface ApiResponse<T = any> {
  * Injeta token Authorization Bearer e trata resposta 401 automaticamente.
  */
 async function request<T = any>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
-  const { params, timeout = 35000, headers = {}, ...customConfig } = options;
+  const { params, timeout = 90000, headers = {}, ...customConfig } = options;
 
   let url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
