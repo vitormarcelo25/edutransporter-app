@@ -10,8 +10,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
-  ScrollView, StatusBar, SafeAreaView, KeyboardAvoidingView, Platform
+  ScrollView, StatusBar, KeyboardAvoidingView, Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5, Feather } from '@expo/vector-icons';
 import { Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -178,7 +179,6 @@ export default function Registo() {
         <Image 
           source={require('../../assets/foto-fundo.png')} 
           style={styles.backgroundImage}
-          pointerEvents="none"
         />
         <StatusBar barStyle="light-content" />
         
@@ -405,8 +405,8 @@ export default function Registo() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  backgroundImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', resizeMode: 'cover' },
+  container: { flex: 1, backgroundColor: '#0B1120' },
+  backgroundImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', resizeMode: 'cover', zIndex: -1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20 },
   backBtn: { padding: 5 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFFFFF' },

@@ -9,7 +9,8 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
@@ -65,6 +66,31 @@ export default function IniciarRota() {
     }
   };
 
+  // Função para capturar posição atual de forma multiplataforma
+  const getCurrentGpsCoords = async (): Promise<{ latitude: number; longitude: number } | null> => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      });
+    }
+
+    try {
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      return {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   // Função para iniciar o tracking GPS
   const startGpsTracking = async () => {
     let hasPermission = false;
@@ -75,57 +101,42 @@ export default function IniciarRota() {
     }
 
     if (!hasPermission && Platform.OS !== 'web') {
-      Alert.alert('Erro', 'Permissão de localização negada');
-      return;
+      Alert.alert('Aviso', 'Permissão de localização não concedida. O rastreamento ao vivo do ônibus precisa do GPS ativado.');
     }
 
-    if (!hasPermission && Platform.OS === 'web') {
-      console.log('Permissão de GPS negada/indisponível no navegador. Ativando simulação.');
+    // Dispara uma sincronização imediata
+    const initialCoords = await getCurrentGpsCoords();
+    if (initialCoords && rota) {
+      await updateGpsPosition({
+        rotaId: rota.id,
+        position: {
+          latitude: initialCoords.latitude,
+          longitude: initialCoords.longitude,
+          timestamp: Date.now(),
+        },
+      });
     }
 
-    let step = 0;
-    // Inicia o intervalo de envio de GPS
+    // Envia posições reais do GPS a cada 5 segundos
     gpsIntervalRef.current = setInterval(async () => {
       try {
-        let lat = -23.5505;
-        let lon = -46.6333;
-
-        if (hasPermission) {
-          try {
-            const location = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Balanced,
-            });
-            lat = location.coords.latitude;
-            lon = location.coords.longitude;
-          } catch (err) {
-            console.log('Erro ao ler GPS real. Usando simulação:', err);
-            // Simulação de rota incrementando as coordenadas
-            lat = -23.5505 - (step * 0.0008);
-            lon = -46.6333 - (step * 0.0008);
-            step = (step + 1) % 15;
-          }
-        } else {
-          // Simulação pura para testes na Web sem permissão
-          lat = -23.5505 - (step * 0.0008);
-          lon = -46.6333 - (step * 0.0008);
-          step = (step + 1) % 15;
-        }
-
-        console.log('GPS atualizado:', lat, lon);
-        if (rota) {
-          await updateGpsPosition({
+        if (!rota) return;
+        const coords = await getCurrentGpsCoords();
+        if (coords) {
+          const res = await updateGpsPosition({
             rotaId: rota.id,
             position: {
-              latitude: lat,
-              longitude: lon,
-              timestamp: Date.now()
-            }
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+              timestamp: Date.now(),
+            },
           });
+          if (!res.success) console.log('Falha ao sincronizar GPS:', res.message);
         }
       } catch (err) {
-        console.log('Erro no intervalo do GPS:', err);
+        console.log('Erro ao ler GPS:', err);
       }
-    }, 5000); // A cada 5 segundos
+    }, 5000);
   };
 
   const handleIniciarRota = async () => {

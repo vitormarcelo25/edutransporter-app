@@ -9,9 +9,10 @@
 import React, { useState } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, 
-  SafeAreaView, KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform,
   TextInput
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
@@ -58,7 +59,6 @@ export default function AdminLogin() {
         <Image 
           source={require('../assets/foto-fundo.png')} 
           style={styles.backgroundImage}
-          pointerEvents="none"
         />
         <SafeAreaView style={{ flex: 1 }}>
           <KeyboardAvoidingView 
@@ -132,8 +132,8 @@ export default function AdminLogin() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  backgroundImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', resizeMode: 'cover' },
+  container: { flex: 1, backgroundColor: '#0B1120' },
+  backgroundImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', resizeMode: 'cover', zIndex: -1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

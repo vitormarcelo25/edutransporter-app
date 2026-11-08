@@ -4,8 +4,13 @@ const AUTH_TOKEN_KEY = 'auth_token_v2';
 const USER_ROLE_KEY = 'user_role_v2';
 const USER_DATA_KEY = 'user_data_v2';
 
-// URL oficial do backend na nuvem
-const PRODUCTION_API_URL = 'https://backend-edutransporte.onrender.com';
+// URL oficial do backend na nuvem e Supabase
+export const SUPABASE_URL =
+  process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://sdijocxwzzdoulgcxnic.supabase.co';
+export const SUPABASE_ANON_KEY =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_MOAD07HiYyyXZLbg5B43Mw_XX_1Bao-';
+
+const PRODUCTION_API_URL = `${SUPABASE_URL}/rest/v1`;
 
 const DEFAULT_API_URL = Platform.select({
   android: PRODUCTION_API_URL,
@@ -101,7 +106,7 @@ export interface ApiResponse<T = any> {
  * Injeta token Authorization Bearer e trata resposta 401 automaticamente.
  */
 async function request<T = any>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
-  const { params, timeout = 10000, headers = {}, ...customConfig } = options;
+  const { params, timeout = 35000, headers = {}, ...customConfig } = options;
 
   let url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
@@ -126,6 +131,14 @@ async function request<T = any>(endpoint: string, options: RequestOptions = {}):
     Accept: 'application/json',
     ...(headers as Record<string, string>),
   };
+
+  // Se a requisição for para o Supabase REST, injeta a apikey e o token
+  if (url.includes('supabase.co')) {
+    reqHeaders['apikey'] = SUPABASE_ANON_KEY;
+    if (!reqHeaders['Authorization']) {
+      reqHeaders['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
+    }
+  }
 
   if (token) {
     reqHeaders['Authorization'] = `Bearer ${token}`;

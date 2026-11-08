@@ -37,7 +37,7 @@ export function useNotifications() {
             router.push('/chat');
             break;
           case 'viagem':
-            router.push('/historico');
+            router.push('/calendario');
             break;
           case 'presenca':
             router.push('/presenca');

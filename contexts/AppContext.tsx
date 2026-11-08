@@ -24,6 +24,9 @@ interface UserData {
   nome: string;
   email: string;
   role: UserRole;
+  rotaNome?: string;
+  escola?: string;
+  cidade?: string;
 }
 
 const AppContext = createContext({

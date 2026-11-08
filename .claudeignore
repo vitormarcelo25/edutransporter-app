@@ -1,0 +1,10 @@
+@"
+node_modules/
+.git/
+.next/
+dist/
+build/
+.expo/
+package-lock.json
+*.log
+"@ | Out-File -FilePath .claudeignore -Encoding utf8

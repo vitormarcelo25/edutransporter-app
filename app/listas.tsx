@@ -10,23 +10,26 @@ import {
   StatusBar,
   Dimensions,
   Platform,
-  TextInput
+  TextInput,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 
 import { useApp } from './_layout';
-import { getRotaDoDia, Rota, RotaResponse, RotaAluno, marcarPresenca } from '@/services/api';
+import { LinearGradient } from 'expo-linear-gradient';
+import { getRotaDoDia, Rota, RotaResponse, RotaAluno, marcarPresenca, confirmarPresenca, cancelarPresenca } from '@/services/api';
 
 const { width } = Dimensions.get('window');
 
 export default function Listas() {
   const router = useRouter();
-  const { theme, isDark, userRole, userData, confirmouPresenca, assentoAutomatico, ordemChegada } = useApp();
+  const { theme, isDark, userRole, userData, confirmouPresenca, setConfirmouPresenca, assentoAutomatico, setAssentoAutomatico, ordemChegada, setOrdemChegada } = useApp();
   
   const [rota, setRota] = useState<Rota | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [confirmando, setConfirmando] = useState(false);
 
   // Assentos ocupados (mock)
   const occupiedSeats = [2, 5, 8, 12, 15, 20, 24, 30, 31, 35, 40, 44, 52, 58, 63];
@@ -189,171 +192,309 @@ export default function Listas() {
     );
   }
 
-  // Para aluno - Mostrar apenas assento atribuído automaticamente
+  // Para aluno - Passagem digital com assento automático
+  const primeiroNome = (userData?.nome || 'Aluno').split(' ')[0];
+  const presentesCount = rota?.alunos.filter((a: any) => a.presente).length || 0;
+  const capacidade = 40;
+  const ocupacaoPct = Math.min(100, (presentesCount / capacidade) * 100);
+  const corStatus = confirmouPresenca ? '#48BB78' : theme.gold;
+  const dataHoje = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+
+  const handleConfirmar = async () => {
+    if (!userData?.id) return;
+    setConfirmando(true);
+    try {
+      const res = await confirmarPresenca(userData.id);
+      if (res.success) {
+        setConfirmouPresenca(true);
+        setAssentoAutomatico(Number(res.assento) || 1);
+        if (res.ordem) setOrdemChegada(Number(res.ordem));
+        await loadRota();
+      } else {
+        alert(res.message || 'Não foi possível confirmar a presença.');
+      }
+    } finally {
+      setConfirmando(false);
+    }
+  };
+
+  const handleCancelar = async () => {
+    if (!userData?.id) return;
+    setConfirmando(true);
+    try {
+      const res = await cancelarPresenca(userData.id);
+      if (res.success) {
+        setConfirmouPresenca(false);
+        setAssentoAutomatico(null);
+        setOrdemChegada(null);
+        await loadRota();
+      }
+    } finally {
+      setConfirmando(false);
+    }
+  };
+
+  const passos = [
+    { titulo: 'Confirme a presença', desc: 'Até 1h antes da saída', ok: confirmouPresenca },
+    { titulo: 'Assento garantido', desc: 'Definido por ordem de confirmação', ok: confirmouPresenca && !!assentoAutomatico },
+    { titulo: 'Embarque no ponto', desc: 'Apresente-se 5 min antes', ok: false },
+  ];
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <StatusBar barStyle={theme.status as any} />
 
-      <View style={[styles.headerPremium, { backgroundColor: theme.card }]}>
-        <TouchableOpacity onPress={() => router.replace('/home')} style={styles.backBtn}>
-          <Feather name="arrow-left" size={22} color={theme.text} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Minha Viagem</Text>
-          <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>Hoje • HOJE</Text>
+      <ScrollView contentContainerStyle={vs.scroll} showsVerticalScrollIndicator={false}>
+        {/* Topo */}
+        <View style={vs.topRow}>
+          <TouchableOpacity onPress={() => router.replace('/home')} style={[vs.roundBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Feather name="arrow-left" size={20} color={theme.text} />
+          </TouchableOpacity>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={[vs.topTitle, { color: theme.text }]}>Minha Viagem</Text>
+            <Text style={[vs.topSub, { color: theme.subtext }]}>{dataHoje}</Text>
+          </View>
+          <TouchableOpacity onPress={loadRota} style={[vs.roundBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Feather name="refresh-cw" size={18} color={theme.gold} />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.headerBtn}>
-          <MaterialCommunityIcons name="bell-outline" size={22} color={theme.text} />
-        </TouchableOpacity>
-      </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Card Principal - Visual Premium */}
-        <View style={[styles.seatCard, { backgroundColor: theme.card }]}>
-          {/* Barra decorativa */}
-          <View style={[styles.seatCardBar, { backgroundColor: confirmouPresenca ? '#48BB78' : theme.gold }]} />
-          
-          <View style={styles.seatCardContent}>
-            {/* Status Badge */}
-            <View style={[styles.statusBadge, { backgroundColor: confirmouPresenca ? 'rgba(72,187,120,0.15)' : 'rgba(245,166,35,0.15)' }]}>
-              <View style={[styles.statusDot, { backgroundColor: confirmouPresenca ? '#48BB78' : theme.gold }]} />
-              <Text style={[styles.statusText, { color: confirmouPresenca ? '#48BB78' : theme.gold }]}>
-                {confirmouPresenca ? 'Viagem Confirmada' : 'Aguardando Confirmação'}
-              </Text>
+        {/* Saudação */}
+        <Text style={[vs.hello, { color: theme.text }]}>Olá, {primeiroNome} 👋</Text>
+        <Text style={[vs.helloSub, { color: theme.subtext }]}>
+          {confirmouPresenca ? 'Tudo certo! Seu lugar está reservado.' : 'Confirme sua presença para reservar seu lugar.'}
+        </Text>
+
+        {/* Passagem digital */}
+        <View style={[vs.ticket, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <LinearGradient
+            colors={confirmouPresenca ? ['#2F855A', '#276749'] : ['#F5A623', '#E08A00']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={vs.ticketHead}
+          >
+            <View style={vs.ticketHeadRow}>
+              <View style={vs.statusPill}>
+                <View style={[vs.statusDot, { backgroundColor: '#FFF' }]} />
+                <Text style={vs.statusPillText}>{confirmouPresenca ? 'CONFIRMADA' : 'AGUARDANDO'}</Text>
+              </View>
+              <View style={vs.tipoPill}>
+                <MaterialCommunityIcons name={rota?.tipo === 'Volta' ? 'arrow-left-bold' : 'arrow-right-bold'} size={14} color="#FFF" />
+                <Text style={vs.tipoPillText}>{rota?.tipo || 'Ida'}</Text>
+              </View>
             </View>
 
-            {/* Assento - Visual Grande e Impactante */}
-            <View style={styles.seatVisualContainer}>
-              {confirmouPresenca && assentoAutomatico ? (
-                <>
-                  <View style={[styles.seatCircle, { borderColor: theme.gold }]}>
-                    <FontAwesome5 name="chair" size={48} color={theme.gold} />
-                  </View>
-                  <Text style={[styles.seatNumber, { color: theme.gold }]}>#{assentoAutomatico}</Text>
-                  <Text style={[styles.seatLabel, { color: theme.subtext }]}>SEU ASSENTO</Text>
-                </>
-              ) : (
-                <>
-                  <View style={[styles.seatCircle, { borderColor: theme.subtext, opacity: 0.5 }]}>
-                    <FontAwesome5 name="chair" size={48} color={theme.subtext} />
-                  </View>
-                  <Text style={[styles.seatNumberPending, { color: theme.subtext }]}>--</Text>
-                  <Text style={[styles.seatLabel, { color: theme.subtext }]}>AGUARDANDO</Text>
-                </>
-              )}
+            <View style={vs.seatRow}>
+              <View style={vs.seatBadge}>
+                <MaterialCommunityIcons name="seat-passenger" size={44} color="#FFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={vs.seatSmall}>SEU ASSENTO</Text>
+                <Text style={vs.seatBig}>
+                  {confirmouPresenca && assentoAutomatico ? `#${assentoAutomatico}` : '—'}
+                </Text>
+                {confirmouPresenca && ordemChegada ? (
+                  <Text style={vs.seatQueue}>{ordemChegada}º a confirmar</Text>
+                ) : (
+                  <Text style={vs.seatQueue}>Disponível após confirmar</Text>
+                )}
+              </View>
             </View>
+          </LinearGradient>
 
-            {/* Ordem na fila */}
-            {confirmouPresenca && ordemChegada && (
-              <View style={styles.queueContainer}>
-                <View style={[styles.queueBadge, { backgroundColor: 'rgba(245,166,35,0.15)' }]}>
-                  <MaterialCommunityIcons name="run" size={16} color={theme.gold} />
-                  <Text style={[styles.queueText, { color: theme.gold }]}>
-                    {ordemChegada}º na fila de confirmação
+          {/* Picote */}
+          <View style={vs.notchRow}>
+            <View style={[vs.notch, { backgroundColor: theme.bg, marginLeft: -12 }]} />
+            <View style={[vs.dashed, { borderColor: theme.border }]} />
+            <View style={[vs.notch, { backgroundColor: theme.bg, marginRight: -12 }]} />
+          </View>
+
+          <View style={vs.ticketBody}>
+            <View style={vs.routeLine}>
+              <View style={{ alignItems: 'center' }}>
+                <View style={[vs.routeDot, { borderColor: theme.gold }]} />
+                <View style={[vs.routeBar, { backgroundColor: theme.border }]} />
+                <View style={[vs.routeDot, { backgroundColor: theme.gold, borderColor: theme.gold }]} />
+              </View>
+              <View style={{ flex: 1, justifyContent: 'space-between' }}>
+                <View>
+                  <Text style={[vs.routeLabel, { color: theme.subtext }]}>PARTIDA</Text>
+                  <Text style={[vs.routeValue, { color: theme.text }]} numberOfLines={1}>
+                    {rota?.paradas?.[0]?.nome || 'Ponto de embarque'}
+                  </Text>
+                </View>
+                <View style={{ marginTop: 18 }}>
+                  <Text style={[vs.routeLabel, { color: theme.subtext }]}>DESTINO</Text>
+                  <Text style={[vs.routeValue, { color: theme.text }]} numberOfLines={1}>
+                    {rota?.escola || rota?.nome || 'Instituição de ensino'}
                   </Text>
                 </View>
               </View>
+              <View style={[vs.timeBox, { backgroundColor: theme.inputBg }]}>
+                <Text style={[vs.timeLabel, { color: theme.subtext }]}>SAÍDA</Text>
+                <Text style={[vs.timeValue, { color: theme.gold }]}>{rota?.horario || '06:30'}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Métricas */}
+        <View style={vs.metricsRow}>
+          <View style={[vs.metric, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <MaterialCommunityIcons name="bus-school" size={22} color={theme.gold} />
+            <Text style={[vs.metricValue, { color: theme.text }]} numberOfLines={1}>{rota?.nome || 'Linha 01 - Nassau Noturno'}</Text>
+            <Text style={[vs.metricLabel, { color: theme.subtext }]}>Linha</Text>
+          </View>
+          <View style={[vs.metric, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <MaterialCommunityIcons name="account-group" size={22} color="#9F7AEA" />
+            <Text style={[vs.metricValue, { color: theme.text }]}>{presentesCount}/{capacidade}</Text>
+            <View style={[vs.progressTrack, { backgroundColor: theme.inputBg }]}>
+              <View style={[vs.progressBarFill, { width: `${ocupacaoPct}%` }]} />
+            </View>
+            <Text style={[vs.metricLabel, { color: theme.subtext }]}>Ocupação</Text>
+          </View>
+        </View>
+
+        {/* Itinerário de Paradas da Rota */}
+        {rota?.paradas && rota.paradas.length > 0 && (
+          <View style={[vs.itinerarioCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={vs.itinerarioHeader}>
+              <Feather name="map" size={18} color={theme.gold} />
+              <Text style={[vs.itinerarioTitle, { color: theme.text }]}>Itinerário & Paradas</Text>
+            </View>
+            {rota.paradas.map((parada, idx) => (
+              <View key={parada.id || idx} style={vs.paradaItem}>
+                <View style={{ alignItems: 'center' }}>
+                  <View style={[vs.paradaDot, { backgroundColor: idx === 0 ? '#48BB78' : theme.gold }]} />
+                  {idx < rota.paradas.length - 1 && <View style={[vs.paradaLine, { backgroundColor: theme.border }]} />}
+                </View>
+                <View style={{ flex: 1, paddingBottom: idx < rota.paradas.length - 1 ? 14 : 0 }}>
+                  <Text style={[vs.paradaNome, { color: theme.text }]}>{parada.nome}</Text>
+                  <Text style={[vs.paradaEndereco, { color: theme.subtext }]}>{parada.endereco}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Ação principal */}
+        {!confirmouPresenca ? (
+          <TouchableOpacity activeOpacity={0.9} onPress={handleConfirmar} disabled={confirmando} style={vs.ctaWrap}>
+            <LinearGradient colors={['#F5A623', '#E08A00']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={vs.cta}>
+              {confirmando ? (
+                <ActivityIndicator color="#1A253A" />
+              ) : (
+                <>
+                  <Feather name="check-circle" size={22} color="#1A253A" />
+                  <Text style={vs.ctaText}>Confirmar minha presença</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity activeOpacity={0.8} onPress={handleCancelar} disabled={confirmando} style={[vs.cancelBtn, { borderColor: '#EF4444' }]}>
+            {confirmando ? <ActivityIndicator color="#EF4444" /> : (
+              <>
+                <Feather name="x-circle" size={18} color="#EF4444" />
+                <Text style={vs.cancelBtnText}>Cancelar minha confirmação</Text>
+              </>
             )}
-          </View>
-        </View>
-
-        {/* Cards de Informação - Grid 2x2 */}
-        <View style={styles.infoGrid}>
-          <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
-            <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(72,187,120,0.15)' }]}>
-              <MaterialCommunityIcons name="clock-outline" size={20} color="#48BB78" />
-            </View>
-            <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Saída</Text>
-            <Text style={[styles.infoCardValue, { color: theme.text }]}>06:30</Text>
-            <Text style={[styles.infoCardSub, { color: theme.subtext }]}>Manhã</Text>
-          </View>
-
-          <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
-            <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(66,153,225,0.15)' }]}>
-              <MaterialCommunityIcons name="school" size={20} color="#4299E1" />
-            </View>
-            <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Destino</Text>
-            <Text style={[styles.infoCardValue, { color: theme.text }]}>{rota?.escola || '-'}</Text>
-            <Text style={[styles.infoCardSub, { color: theme.subtext }]}>{rota?.tipo || '-'}</Text>
-          </View>
-
-          <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
-            <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(245,166,35,0.15)' }]}>
-              <FontAwesome5 name="bus-school" size={20} color={theme.gold} />
-            </View>
-            <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Horário</Text>
-            <Text style={[styles.infoCardValue, { color: theme.text }]}>{rota?.horario || '--:--'}</Text>
-            <Text style={[styles.infoCardSub, { color: theme.subtext }]}>{rota?.tipo || '-'}</Text>
-          </View>
-
-            <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
-              <View style={[styles.infoCardIcon, { backgroundColor: 'rgba(159,122,234,0.15)' }]}>
-                <FontAwesome5 name="users" size={20} color="#9F7AEA" />
-              </View>
-              <Text style={[styles.infoCardLabel, { color: theme.subtext }]}>Ocupação</Text>
-              <Text style={[styles.infoCardValue, { color: theme.text }]}>
-                {rota?.alunos.filter((a: any) => a.presente).length || 0}/40
-              </Text>
-              <View style={[styles.progressBar, { backgroundColor: theme.inputBg }]}>
-                <View style={[styles.progressFill, { width: `${(rota?.alunos.filter((a: any) => a.presente).length || 0) / 40 * 100}%`, backgroundColor: '#9F7AEA' }]} />
-              </View>
-            </View>
-        </View>
-
-        {/* Card de Ação - se não confirmou */}
-        {!confirmouPresenca && (
-          <TouchableOpacity 
-            style={[styles.ctaButton, { backgroundColor: theme.gold }]}
-            onPress={() => router.replace('/home')}
-          >
-            <View style={styles.ctaContent}>
-              <View style={styles.ctaIcon}>
-                <Feather name="check-circle" size={28} color="#1A253A" />
-              </View>
-              <View style={styles.ctaText}>
-                <Text style={[styles.ctaTitle, { color: '#1A253A' }]}>Confirmar Presença</Text>
-                <Text style={[styles.ctaSub, { color: '#1A253A' }]}>Toque para confirmar sua viagem</Text>
-              </View>
-            </View>
-            <Feather name="chevron-right" size={24} color="#1A253A" />
           </TouchableOpacity>
         )}
 
-        {/* Card de Cancelamento - se confirmou */}
-        {confirmouPresenca && (
-          <TouchableOpacity 
-            style={[styles.cancelButton, { borderColor: '#EF4444' }]}
-            onPress={() => router.replace('/home')}
-          >
-            <Feather name="x-circle" size={20} color="#EF4444" />
-            <Text style={[styles.cancelText, { color: '#EF4444' }]}>Cancelar minha confirmação</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Informações Adicionais */}
-        <View style={[styles.helpCard, { backgroundColor: theme.card }]}>
-          <View style={styles.helpHeader}>
-            <MaterialCommunityIcons name="information" size={18} color={theme.gold} />
-            <Text style={[styles.helpTitle, { color: theme.text }]}>Como funciona</Text>
-          </View>
-          <View style={styles.helpItem}>
-            <View style={[styles.helpDot, { backgroundColor: '#48BB78' }]} />
-            <Text style={[styles.helpText, { color: theme.subtext }]}>Confirme sua presença antes das 06:00</Text>
-          </View>
-          <View style={styles.helpItem}>
-            <View style={[styles.helpDot, { backgroundColor: theme.gold }]} />
-            <Text style={[styles.helpText, { color: theme.subtext }]}>O assento é definido automaticamente</Text>
-          </View>
-          <View style={styles.helpItem}>
-            <View style={[styles.helpDot, { backgroundColor: '#4299E1' }]} />
-            <Text style={[styles.helpText, { color: theme.subtext }]}>Primeiros a confirmar sentam mais à frente</Text>
-          </View>
+        {/* Passo a passo */}
+        <View style={[vs.stepsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[vs.stepsTitle, { color: theme.text }]}>Como funciona</Text>
+          {passos.map((p, i) => (
+            <View key={p.titulo} style={vs.stepRow}>
+              <View style={{ alignItems: 'center' }}>
+                <View style={[vs.stepCircle, { backgroundColor: p.ok ? '#48BB78' : theme.inputBg, borderColor: p.ok ? '#48BB78' : theme.border }]}>
+                  {p.ok ? <Feather name="check" size={14} color="#FFF" /> : <Text style={[vs.stepNum, { color: theme.subtext }]}>{i + 1}</Text>}
+                </View>
+                {i < passos.length - 1 && <View style={[vs.stepLine, { backgroundColor: theme.border }]} />}
+              </View>
+              <View style={{ flex: 1, paddingBottom: i < passos.length - 1 ? 16 : 0 }}>
+                <Text style={[vs.stepTitle, { color: theme.text }]}>{p.titulo}</Text>
+                <Text style={[vs.stepDesc, { color: theme.subtext }]}>{p.desc}</Text>
+              </View>
+            </View>
+          ))}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 };
+
+const vs = StyleSheet.create({
+  scroll: { padding: 20, paddingTop: Platform.OS === 'ios' ? 10 : 28, paddingBottom: 40 },
+  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  roundBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  topTitle: { fontSize: 17, fontWeight: '800' },
+  topSub: { fontSize: 12, marginTop: 2, textTransform: 'capitalize' },
+  hello: { fontSize: 26, fontWeight: '800' },
+  helloSub: { fontSize: 14, marginTop: 4, marginBottom: 20 },
+
+  ticket: { borderRadius: 28, borderWidth: 1, overflow: 'hidden', marginBottom: 16, elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 14 },
+  ticketHead: { padding: 22 },
+  ticketHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 },
+  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(0,0,0,0.22)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusPillText: { color: '#FFF', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  tipoPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.22)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  tipoPillText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
+  seatRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  seatBadge: { width: 84, height: 84, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  seatSmall: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
+  seatBig: { color: '#FFF', fontSize: 46, fontWeight: '900', lineHeight: 52 },
+  seatQueue: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '600' },
+
+  notchRow: { flexDirection: 'row', alignItems: 'center', height: 24 },
+  notch: { width: 24, height: 24, borderRadius: 12 },
+  dashed: { flex: 1, borderTopWidth: 1.5, borderStyle: 'dashed', marginHorizontal: 6 },
+
+  ticketBody: { padding: 22, paddingTop: 12 },
+  routeLine: { flexDirection: 'row', gap: 14, alignItems: 'stretch' },
+  routeDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 3, backgroundColor: 'transparent' },
+  routeBar: { width: 2, flex: 1, marginVertical: 4, minHeight: 26 },
+  routeLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  routeValue: { fontSize: 15, fontWeight: '700', marginTop: 2 },
+  timeBox: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: 16 },
+  timeLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+  timeValue: { fontSize: 22, fontWeight: '900', marginTop: 2 },
+
+  metricsRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  metric: { flex: 1, borderRadius: 20, borderWidth: 1, padding: 16, alignItems: 'flex-start', gap: 6 },
+  metricValue: { fontSize: 16, fontWeight: '800' },
+  metricLabel: { fontSize: 11, fontWeight: '600' },
+  progressTrack: { width: '100%', height: 5, borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#9F7AEA', borderRadius: 3 },
+
+  ctaWrap: { marginBottom: 16, borderRadius: 22, elevation: 6, shadowColor: '#F5A623', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 12 },
+  cta: { height: 60, borderRadius: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  ctaText: { color: '#1A253A', fontSize: 17, fontWeight: '800' },
+  cancelBtn: { height: 54, borderRadius: 20, borderWidth: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16 },
+  cancelBtnText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },
+
+  stepsCard: { borderRadius: 22, borderWidth: 1, padding: 20 },
+  stepsTitle: { fontSize: 16, fontWeight: '800', marginBottom: 16 },
+
+  itinerarioCard: { borderRadius: 22, borderWidth: 1, padding: 20, marginBottom: 16 },
+  itinerarioHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
+  itinerarioTitle: { fontSize: 16, fontWeight: '800' },
+  paradaItem: { flexDirection: 'row', gap: 14 },
+  paradaDot: { width: 14, height: 14, borderRadius: 7, marginTop: 3 },
+  paradaLine: { width: 2, flex: 1, marginVertical: 3 },
+  paradaNome: { fontSize: 14, fontWeight: '700' },
+  paradaEndereco: { fontSize: 12, marginTop: 2 },
+  stepRow: { flexDirection: 'row', gap: 14 },
+  stepCircle: { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  stepNum: { fontSize: 12, fontWeight: '800' },
+  stepLine: { width: 2, flex: 1, marginVertical: 2 },
+  stepTitle: { fontSize: 14, fontWeight: '700' },
+  stepDesc: { fontSize: 12, marginTop: 2 },
+});
+
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
