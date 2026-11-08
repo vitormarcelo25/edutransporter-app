@@ -8,6 +8,18 @@ import { apiClient, getApiErrorMessage, API_BASE_URL, storageHelper, setOnUnauth
 
 export { API_BASE_URL, storageHelper, setOnUnauthorized };
 
+/**
+ * Acorda o backend no Render (plano free hiberna). Chamado no início do app,
+ * em paralelo, para que o primeiro login do usuário não espere o cold start.
+ */
+export const warmUpBackend = async (): Promise<void> => {
+  try {
+    await apiClient.get('/health', { timeout: 90000 });
+  } catch {
+    // silencioso: é apenas um aquecimento
+  }
+};
+
 // ==========================================
 // DADOS MESTRES
 // ==========================================
@@ -222,7 +234,7 @@ export interface Usuario {
   email: string;
   telefone: string;
   cidade: string;
-  role: 'motorista' | 'aluno';
+  role: 'motorista' | 'aluno' | 'admin';
   escola?: string;
   foto?: string;
 }
@@ -341,6 +353,19 @@ const formatarDataHoraApi = (valor?: string | null): string => {
     hour: '2-digit',
     minute: '2-digit',
   });
+};
+
+/** Converte "dd/MM/yyyy" (app) para "yyyy-MM-dd" (backend). */
+const dataBrParaIso = (valor?: string | null): string | null => {
+  if (!valor) return null;
+  const texto = String(valor).trim();
+  const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (br) {
+    return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
+  }
+  return null;
 };
 
 const formatarHoraApi = (valor?: string | null): string => {
@@ -518,7 +543,7 @@ export const login = async (
           cpf: cpfLimpo,
           senha: pass,
         },
-        { timeout: 35000 }
+        { timeout: 90000 }
       );
       data = response.data || {};
       loginOk = Boolean(data.token);
@@ -1111,14 +1136,8 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
     rotaEncontrada = adminRotas[adminRotas.length - 1];
   }
 
-  if (rotaEncontrada && rotaEncontrada.paradas && rotaEncontrada.paradas.length > 0) {
-    return {
-      success: true,
-      rota: rotaEncontrada,
-    };
-  }
-
-  // Tenta backend real como fallback caso o servidor esteja conectado
+  // O backend é consultado primeiro (rotas criadas no painel aparecem para todos).
+  // Se o servidor estiver offline, cai para as rotas locais logo abaixo.
   try {
     const viagem = await obterViagemAtual();
     if (viagem) {
@@ -1164,7 +1183,7 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
         rota: {
           id: String(viagem.id),
           nome: viagem.nomeRota || 'Linha 01 - Nassau Noturno',
-          escola: viagem.veiculoModelo || 'Faculdade Maurício de Nassau',
+          escola: viagem.escola || viagem.veiculoModelo || 'Faculdade Maurício de Nassau',
           horario: formatarHoraApi(viagem.horario) || '17:45',
           tipo: normalizarTipoViagem(viagem.tipo),
           status: normalizarStatusRota(viagem.status),
@@ -1175,6 +1194,14 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
     }
   } catch (err: any) {
     console.warn('Backend /api/viagens indisponível:', err?.message || err);
+  }
+
+  // Backend indisponível: usa a rota salva localmente (modo offline).
+  if (rotaEncontrada && rotaEncontrada.paradas && rotaEncontrada.paradas.length > 0) {
+    return {
+      success: true,
+      rota: rotaEncontrada,
+    };
   }
 
   // Fallback seguro final
@@ -1667,34 +1694,70 @@ export const cadastrarMotoristaAdmin = async (dados: {
   const placaFormatada = dados.placa.trim().toUpperCase();
 
   try {
-    const response = await apiClient.post<any>('/admin/motoristas', {
-      ...dados,
+    // O backend exige cidade: usa a primeira cidade cadastrada (Caruaru).
+    let cidadeId = 1;
+    try {
+      const cidades = await apiClient.get<any[]>('/cidades');
+      if (Array.isArray(cidades.data) && cidades.data.length > 0) {
+        cidadeId = Number(cidades.data[0]?.id) || 1;
+      }
+    } catch {
+      // mantém o padrão
+    }
+
+    const telefoneLimpo = (dados.telefone || '').replace(/\D/g, '') || '81999990000';
+    const email = `${cpfLimpo}@motorista.edutransporte`;
+
+    await apiClient.post<any>('/api/usuarios/motoristas', {
       cpf: cpfLimpo,
-      placa: placaFormatada,
+      nomeCompleto: dados.nome.trim(),
+      email,
+      numeroCelular: telefoneLimpo,
+      senha: '12345',
+      carteiraConducao: (dados.cnh || '00000000000').trim(),
+      cidadeId,
     });
+
+    // Garante que o veículo exista para que rotas possam ser atribuídas.
+    if (placaFormatada) {
+      try {
+        const veiculos = await apiClient.get<any[]>('/api/veiculos');
+        const existe = Array.isArray(veiculos.data)
+          && veiculos.data.some((v: any) => String(v.placa || '').toUpperCase() === placaFormatada);
+        if (!existe) {
+          await apiClient.post('/api/veiculos', {
+            placa: placaFormatada,
+            modelo: `Veículo de ${dados.nome.trim()}`,
+          });
+        }
+      } catch (err: any) {
+        console.warn('Não foi possível cadastrar o veículo:', err?.message || err);
+      }
+    }
+
+    const novoMotorista: MotoristaCadastrado = {
+      id: cpfLimpo,
+      nome: dados.nome.trim(),
+      cpf: cpfLimpo,
+      telefone: dados.telefone,
+      cnh: dados.cnh,
+      placa: placaFormatada,
+      rotaId: dados.rotaId,
+      rotaNome: dados.rotaNome,
+      criadoEm: new Date().toLocaleDateString('pt-BR'),
+    };
+
     return {
       success: true,
-      message: response.data?.message || 'Motorista cadastrado com sucesso!',
-      motorista: response.data?.motorista,
+      message: 'Motorista cadastrado com sucesso! Senha inicial: 12345',
+      motorista: novoMotorista,
     };
   } catch (err: any) {
-    console.warn('Backend admin/motoristas indisponível:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível cadastrar o motorista no servidor.'),
+    };
   }
-
-  const novoMotorista: MotoristaCadastrado = {
-    id: `mot-${Date.now()}`,
-    nome: dados.nome,
-    cpf: cpfLimpo,
-    telefone: dados.telefone,
-    cnh: dados.cnh,
-    placa: placaFormatada,
-    rotaId: dados.rotaId,
-    rotaNome: dados.rotaNome,
-    criadoEm: new Date().toLocaleDateString('pt-BR'),
-  };
-  MOCK_MOTORISTAS.unshift(novoMotorista);
-
-  return { success: true, message: 'Motorista cadastrado com sucesso!', motorista: novoMotorista };
 };
 
 export const getUsuariosAdmin = async (): Promise<{
@@ -1892,36 +1955,41 @@ export const getAdminRotas = async (): Promise<AdminRotasResponse> => {
   } catch {}
 
   try {
-    const response = await apiClient.get<any>('/api/viagens');
-    const lista = Array.isArray(response.data) ? response.data : response.data?.rotas;
-    if (Array.isArray(lista) && lista.length > 0) {
-      const rotasApi: Rota[] = lista.map((v: any) => ({
-        id: String(v.id ?? ''),
-        nome: v.nomeRota || 'Rota',
-        escola: v.veiculoModelo || '',
-        horario: formatarHoraApi(v.horario),
-        tipo: normalizarTipoViagem(v.tipo),
-        status: normalizarStatusRota(v.status),
-        paradas: PARADAS_PADRAO_CARUARU,
-        alunos: [],
-      }));
-      // Combina rotas da API com criadas localmente pelo admin
-      const todas = [...rotasLocais];
-      rotasApi.forEach((apiR) => {
-        if (!todas.some((l) => l.nome.toLowerCase() === apiR.nome.toLowerCase())) {
-          todas.push(apiR);
-        }
-      });
-      return { success: true, rotas: todas.length > 0 ? todas : ROTAS_PADRAO_INICIAIS };
-    }
-  } catch (err: any) {
-    console.warn('Backend /api/viagens indisponível:', err?.message || err);
-  }
+    const response = await apiClient.get<any[]>('/admin/rotas');
+    const lista = Array.isArray(response.data) ? response.data : [];
+    const rotas: Rota[] = lista.map((r: any) => ({
+      id: String(r.id ?? ''),
+      nome: r.nome || 'Rota',
+      escola: r.escola || '',
+      horario: formatarHoraApi(r.horario),
+      tipo: normalizarTipoViagem(r.tipo),
+      status: normalizarStatusRota(r.status),
+      paradas: (Array.isArray(r.paradas) ? r.paradas : []).map((p: any, index: number) => ({
+        id: `p-${r.id}-${index + 1}`,
+        nome: p.nome || `Parada ${index + 1}`,
+        endereco: p.endereco || p.nome || '',
+        latitude: Number(p.latitude ?? 0),
+        longitude: Number(p.longitude ?? 0),
+      })),
+      alunos: Array.isArray(r.alunos) ? r.alunos : [],
+    }));
 
-  return {
-    success: true,
-    rotas: rotasLocais.length > 0 ? rotasLocais : ROTAS_PADRAO_INICIAIS,
-  };
+    // Mantém também o que estiver em cache local, sem duplicar pelo nome.
+    rotasLocais.forEach((local) => {
+      if (!rotas.some((apiR) => apiR.nome.toLowerCase() === local.nome.toLowerCase())) {
+        rotas.push(local);
+      }
+    });
+
+    return { success: true, rotas };
+  } catch (err: any) {
+    console.warn('Backend /admin/rotas indisponível:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível carregar as rotas do servidor.'),
+      rotas: rotasLocais.length > 0 ? rotasLocais : ROTAS_PADRAO_INICIAIS,
+    };
+  }
 };
 
 export const createRota = async (data: CreateRotaInput & { paradas?: Parada[] }): Promise<{ success: boolean; message: string; rota?: Rota }> => {
@@ -1944,47 +2012,75 @@ export const createRota = async (data: CreateRotaInput & { paradas?: Parada[] })
         },
       ];
 
-  const novaRota: Rota = {
-    id: `rota-${Date.now()}`,
-    nome: data.nome,
-    escola: data.escola,
-    horario: data.horario,
-    tipo: data.tipo,
-    status: 'agendada',
-    paradas: paradasNovaRota,
-    alunos: [],
-  };
-
   try {
-    const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-    const lista: Rota[] = raw ? JSON.parse(raw) : [...ROTAS_PADRAO_INICIAIS];
-    lista.push(novaRota);
-    await storageHelper.setItem(ADMIN_ROTAS_STORAGE_KEY, JSON.stringify(lista));
-  } catch {}
+    const response = await apiClient.post<any>('/admin/rotas', {
+      nome: data.nome,
+      escola: data.escola,
+      horario: data.horario,
+      tipo: data.tipo,
+      motoristaId: data.motoristaId || '',
+      paradas: paradasNovaRota.map((p) => ({
+        nome: p.nome,
+        latitude: p.latitude,
+        longitude: p.longitude,
+      })),
+    });
 
-  try {
-    const response = await apiClient.post<any>('/admin/rotas', data);
-    return { success: true, message: response.data?.message || 'Rota criada com sucesso!', rota: novaRota };
+    const r = response.data || {};
+    const novaRota: Rota = {
+      id: String(r.id ?? ''),
+      nome: r.nome || data.nome,
+      escola: r.escola || data.escola,
+      horario: formatarHoraApi(r.horario) || data.horario,
+      tipo: normalizarTipoViagem(r.tipo),
+      status: normalizarStatusRota(r.status),
+      paradas: paradasNovaRota,
+      alunos: [],
+    };
+
+    try {
+      const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
+      const lista: Rota[] = raw ? JSON.parse(raw) : [];
+      lista.push(novaRota);
+      await storageHelper.setItem(ADMIN_ROTAS_STORAGE_KEY, JSON.stringify(lista));
+    } catch {}
+
+    return { success: true, message: 'Rota criada e disponibilizada para todos os alunos!', rota: novaRota };
   } catch (err: any) {
-    return { success: true, message: 'Rota criada e disponibilizada com sucesso!', rota: novaRota };
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível criar a rota no servidor.'),
+    };
   }
 };
 
 export const deleteRota = async (rotaId: string): Promise<{ success: boolean; message: string }> => {
-  try {
-    const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-    if (raw) {
-      const lista: Rota[] = JSON.parse(raw);
-      const filtradas = lista.filter((r) => r.id !== rotaId);
-      await storageHelper.setItem(ADMIN_ROTAS_STORAGE_KEY, JSON.stringify(filtradas));
-    }
-  } catch {}
+  const removerDoCache = async () => {
+    try {
+      const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
+      if (raw) {
+        const lista: Rota[] = JSON.parse(raw);
+        await storageHelper.setItem(ADMIN_ROTAS_STORAGE_KEY,
+          JSON.stringify(lista.filter((r) => r.id !== rotaId)));
+      }
+    } catch {}
+  };
+
+  // Rotas antigas criadas só no navegador têm id "rota-...".
+  if (!/^\d+$/.test(rotaId)) {
+    await removerDoCache();
+    return { success: true, message: 'Rota removida do cache local.' };
+  }
 
   try {
-    const response = await apiClient.delete<any>(`/admin/rotas/${rotaId}`);
-    return { success: true, message: response.data?.message || 'Rota excluída com sucesso!' };
-  } catch (err: any) {
+    await apiClient.delete(`/admin/rotas/${rotaId}`);
+    await removerDoCache();
     return { success: true, message: 'Rota excluída com sucesso!' };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível excluir a rota no servidor.'),
+    };
   }
 };
 
@@ -1995,29 +2091,38 @@ const FERIADOS_PADRAO: Feriado[] = [
   { id: '4', nome: 'Semana de Avaliações', data: '15/05/2026', motivo: 'Horário especial de transporte' },
 ];
 
+const normalizarFeriado = (f: any): Feriado => ({
+  id: String(f?.data ?? ''),
+  nome: f?.nome || '',
+  data: formatarDataApi(f?.data),
+  motivo: f?.descricao || f?.motivo || '',
+});
+
 export const getFeriados = async (): Promise<FeriadosResponse> => {
-  let feriadosLocais: Feriado[] = [];
   try {
-    const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        feriadosLocais = parsed;
-      }
-    }
-  } catch {}
-
-  if (feriadosLocais.length === 0) {
-    feriadosLocais = [...FERIADOS_PADRAO];
+    const response = await apiClient.get<any[]>('/admin/feriados');
+    const lista = Array.isArray(response.data) ? response.data : [];
+    const feriados = lista.map(normalizarFeriado);
     try {
-      await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(feriadosLocais));
+      await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(feriados));
     } catch {}
+    return { success: true, feriados };
+  } catch (err: any) {
+    console.warn('Backend /admin/feriados indisponível:', err?.message || err);
+    let feriadosLocais: Feriado[] = [];
+    try {
+      const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) feriadosLocais = parsed;
+      }
+    } catch {}
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível carregar os feriados do servidor.'),
+      feriados: feriadosLocais.length > 0 ? feriadosLocais : FERIADOS_PADRAO,
+    };
   }
-
-  return {
-    success: true,
-    feriados: feriadosLocais,
-  };
 };
 
 export const createFeriado = async (data: { nome: string; data: string; motivo: string }): Promise<{ success: boolean; feriado?: Feriado; message: string }> => {
@@ -2025,79 +2130,119 @@ export const createFeriado = async (data: { nome: string; data: string; motivo: 
     return { success: false, message: 'Nome e data são obrigatórios.' };
   }
 
-  const novoFeriado: Feriado = {
-    id: `feriado_${Date.now()}`,
-    nome: data.nome.trim(),
-    data: data.data.trim(),
-    motivo: data.motivo?.trim() || 'Evento escolar / Feriado',
-  };
-
-  try {
-    const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
-    const lista: Feriado[] = raw ? JSON.parse(raw) : [...FERIADOS_PADRAO];
-    lista.push(novoFeriado);
-    await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(lista));
-  } catch (err) {
-    console.warn('Erro ao salvar feriado no storage:', err);
+  const dataIso = dataBrParaIso(data.data);
+  if (!dataIso) {
+    return { success: false, message: 'Data inválida. Use o formato dd/mm/aaaa.' };
   }
 
-  return { success: true, feriado: novoFeriado, message: 'Evento/Feriado cadastrado com sucesso!' };
+  try {
+    const response = await apiClient.post<any>('/admin/feriados', {
+      data: dataIso,
+      nome: data.nome.trim(),
+      descricao: data.motivo?.trim() || 'Evento escolar / Feriado',
+    });
+    const feriado = normalizarFeriado(response.data);
+    try {
+      const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
+      const lista: Feriado[] = raw ? JSON.parse(raw) : [];
+      lista.push(feriado);
+      await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(lista));
+    } catch {}
+    return { success: true, feriado, message: 'Evento/Feriado cadastrado com sucesso!' };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível cadastrar o feriado no servidor.'),
+    };
+  }
 };
 
 export const deleteFeriado = async (feriadoId: string): Promise<{ success: boolean; message: string }> => {
+  const removerDoCache = async () => {
+    try {
+      const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
+      if (raw) {
+        const lista: Feriado[] = JSON.parse(raw);
+        await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY,
+          JSON.stringify(lista.filter((f) => f.id !== feriadoId)));
+      }
+    } catch {}
+  };
+
+  const dataIso = dataBrParaIso(feriadoId);
+  if (!dataIso) {
+    await removerDoCache();
+    return { success: true, message: 'Feriado removido do cache local.' };
+  }
+
   try {
-    const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
-    if (raw) {
-      const lista: Feriado[] = JSON.parse(raw);
-      const filtrados = lista.filter((f) => f.id !== feriadoId);
-      await storageHelper.setItem(ADMIN_FERIADOS_STORAGE_KEY, JSON.stringify(filtrados));
-    }
-  } catch {}
-  return { success: true, message: 'Feriado excluído com sucesso!' };
+    await apiClient.delete(`/admin/feriados/${dataIso}`);
+    await removerDoCache();
+    return { success: true, message: 'Feriado excluído com sucesso!' };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível excluir o feriado no servidor.'),
+    };
+  }
 };
 
-export const getConvites = async (): Promise<ConvitesResponse> => {
-  let convites: Convite[] = [];
-  try {
-    const raw = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) convites = parsed;
-    }
-  } catch {}
+const normalizarConvite = (c: any): Convite => ({
+  id: String(c?.codigo ?? ''),
+  codigo: c?.codigo || '',
+  usado: Boolean(c?.usado),
+  criadoEm: formatarDataHoraApi(c?.criadoEm),
+  expiraEm: formatarDataHoraApi(c?.expiraEm),
+});
 
-  return {
-    success: true,
-    convites,
-  };
+export const getConvites = async (): Promise<ConvitesResponse> => {
+  try {
+    const response = await apiClient.get<any[]>('/admin/convites');
+    const lista = Array.isArray(response.data) ? response.data : [];
+    const convites = lista.map(normalizarConvite);
+    try {
+      await storageHelper.setItem(ADMIN_CONVITES_STORAGE_KEY, JSON.stringify(convites));
+    } catch {}
+    return { success: true, convites };
+  } catch (err: any) {
+    console.warn('Backend /admin/convites indisponível:', err?.message || err);
+    let convites: Convite[] = [];
+    try {
+      const raw = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) convites = parsed;
+      }
+    } catch {}
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível carregar os convites do servidor.'),
+      convites,
+    };
+  }
 };
 
 export const createConvite = async (): Promise<{ success: boolean; convite?: Convite; message?: string }> => {
-  const agora = new Date();
-  const expira = new Date(agora.getTime() + 24 * 60 * 60 * 1000);
-
-  const novoConvite: Convite = {
-    id: `conv_${Date.now()}`,
-    codigo: 'ADM-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
-    usado: false,
-    criadoEm: agora.toLocaleDateString('pt-BR'),
-    expiraEm: expira.toLocaleDateString('pt-BR'),
-  };
-
   try {
-    const raw = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
-    const lista: Convite[] = raw ? JSON.parse(raw) : [];
-    lista.unshift(novoConvite);
-    await storageHelper.setItem(ADMIN_CONVITES_STORAGE_KEY, JSON.stringify(lista));
-  } catch (err) {
-    console.warn('Erro ao salvar convite no storage:', err);
+    const response = await apiClient.post<any>('/admin/convites', {});
+    const convite = normalizarConvite(response.data);
+    try {
+      const raw = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
+      const lista: Convite[] = raw ? JSON.parse(raw) : [];
+      lista.unshift(convite);
+      await storageHelper.setItem(ADMIN_CONVITES_STORAGE_KEY, JSON.stringify(lista));
+    } catch {}
+    return {
+      success: true,
+      convite,
+      message: 'Código de convite gerado com sucesso!',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível gerar o convite no servidor.'),
+    };
   }
-
-  return {
-    success: true,
-    convite: novoConvite,
-    message: 'Código de convite gerado com sucesso!',
-  };
 };
 
 // ==========================================
@@ -2105,42 +2250,42 @@ export const createConvite = async (): Promise<{ success: boolean; convite?: Con
 // ==========================================
 
 export const getPerfil = async (): Promise<PerfilResponse> => {
+  // Fonte da verdade: backend (dados atualizados em qualquer aparelho).
+  try {
+    const resp = await apiClient.get<any>('/api/usuarios/perfil');
+    const p = resp.data;
+    if (p) {
+      return {
+        success: true,
+        usuario: {
+          id: String(p.id || ''),
+          nome: p.nome || '',
+          email: p.email || '',
+          telefone: p.telefone || '',
+          cidade: p.cidade || '',
+          role: p.role === 'motorista' ? 'motorista' : p.role === 'admin' ? 'admin' : 'aluno',
+          escola: p.escola || '',
+        },
+      };
+    }
+  } catch (err: any) {
+    console.warn('Backend /api/usuarios/perfil indisponível:', err?.message || err);
+  }
+
   try {
     const raw = await storageHelper.getItem('user_data_v2');
     if (raw) {
       const u = JSON.parse(raw);
-      const cpf = String(u.id || '').replace(/\D/g, '');
-      if (cpf.length === 11) {
-        try {
-          const resp = await apiClient.get<any>(`/api/usuarios/alunos/${cpf}`);
-          const aluno = resp.data;
-          if (aluno) {
-            return {
-              success: true,
-              usuario: {
-                id: String(aluno.cpf),
-                nome: aluno.nomeCompleto,
-                email: u.email || '',
-                telefone: aluno.numeroCelular || '',
-                cidade: aluno.cidadeNome || '',
-                role: 'aluno',
-                escola: aluno.faculdadeNome || '',
-              },
-            };
-          }
-        } catch {
-          // mantém os dados persistidos abaixo
-        }
-      }
       return {
         success: true,
         usuario: {
           id: String(u.id || ''),
           nome: u.nome || '',
           email: u.email || '',
-          telefone: '',
-          cidade: '',
-          role: u.role === 'motorista' ? 'motorista' : 'aluno',
+          telefone: u.telefone || '',
+          cidade: u.cidade || '',
+          role: u.role === 'motorista' ? 'motorista' : u.role === 'admin' ? 'admin' : 'aluno',
+          escola: u.escola || '',
         },
       };
     }
@@ -2153,19 +2298,31 @@ export const getPerfil = async (): Promise<PerfilResponse> => {
 
 export const updatePerfil = async (data: Partial<Usuario>): Promise<PerfilUpdateResponse> => {
   try {
-    const response = await apiClient.put<any>('/usuarios/perfil', data);
+    const response = await apiClient.put<any>('/api/usuarios/perfil', {
+      nome: data.nome,
+      email: data.email,
+      telefone: data.telefone,
+      cidade: data.cidade,
+      escola: data.escola,
+    });
     return { success: true, message: response.data?.message || 'Perfil atualizado com sucesso!' };
   } catch (err: any) {
-    return { success: true, message: 'Perfil atualizado com sucesso!' };
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível atualizar o perfil no servidor.'),
+    };
   }
 };
 
 export const updateNotificacoes = async (config: NotificacoesConfig): Promise<PerfilUpdateResponse> => {
   try {
-    const response = await apiClient.put<any>('/usuarios/notificacoes', config);
+    const response = await apiClient.put<any>('/api/usuarios/notificacoes', config);
     return { success: true, message: response.data?.message || 'Notificações atualizadas!' };
   } catch (err: any) {
-    return { success: true, message: 'Notificações atualizadas!' };
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível salvar as notificações.'),
+    };
   }
 };
 
@@ -2174,19 +2331,48 @@ export const alterarSenha = async (senhaAtual: string, novaSenha: string): Promi
     const response = await apiClient.put<any>('/auth/alterar-senha', { senhaAtual, novaSenha });
     return { success: true, message: response.data?.message || 'Senha alterada com sucesso!' };
   } catch (err: any) {
-    return { success: true, message: 'Senha alterada com sucesso!' };
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível alterar a senha.'),
+    };
   }
 };
 
 export const getRotasAgenda = async (): Promise<AgendaResponse> => {
   let viagensDb: any[] = [];
   try {
-    const response = await apiClient.get<any[]>('/viagem?select=*');
-    if (Array.isArray(response.data) && response.data.length > 0) {
+    const response = await apiClient.get<any[]>('/api/viagens');
+    if (Array.isArray(response.data)) {
       viagensDb = response.data;
     }
   } catch (err: any) {
-    console.warn('Supabase /viagem indisponível para agenda:', err?.message || err);
+    console.warn('Backend /api/viagens indisponível para agenda:', err?.message || err);
+  }
+
+  if (viagensDb.length > 0) {
+    const rotasReais: RotaAgenda[] = viagensDb.map((v: any) => {
+      let dataFormatada = '';
+      if (v.data) {
+        const d = new Date(`${v.data}T00:00:00`);
+        if (!Number.isNaN(d.getTime())) {
+          const curta = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+          const dia = d.toLocaleDateString('pt-BR', { weekday: 'long' });
+          dataFormatada = `${curta} - ${dia.charAt(0).toUpperCase() + dia.slice(1)}`;
+        }
+      }
+      return {
+        id: String(v.id ?? ''),
+        data: dataFormatada,
+        nome: v.nomeRota || 'Rota',
+        escola: v.escola || '',
+        horario: formatarHoraApi(v.horario) || '18:00',
+        tipo: normalizarTipoViagem(v.tipo),
+        status: normalizarStatusRota(v.status),
+        paradas: [],
+      };
+    });
+
+    return { success: true, rotas: rotasReais };
   }
 
   // Carrega rotas do Admin
@@ -2335,19 +2521,36 @@ export const getMensagensRota = async (rotaIdOuNome: string): Promise<ChatMessag
     console.warn('Erro ao carregar mensagens locais da rota:', err);
   }
 
-  // Tenta sincronizar com o backend se disponível
+  // Tenta sincronizar com o Supabase (/mensagem)
   try {
-    const response = await apiClient.get<ChatMessage[]>(`/rotas/${roomKey}/mensagens`);
+    const idViagemNum = Number(rotaIdOuNome) || 1;
+    const response = await apiClient.get<any[]>(`/mensagem?viagem_id=eq.${idViagemNum}&select=*`);
     if (response?.data && Array.isArray(response.data)) {
+      const msgsSupabase: ChatMessage[] = response.data.map((m: any) => {
+        const dataObj = m.created_at ? new Date(m.created_at) : new Date();
+        return {
+          id: `db_${m.id}`,
+          rotaId: String(m.viagem_id || rotaIdOuNome),
+          autorId: String(m.remetente_cpf || ''),
+          autorNome: m.remetente_tipo === 'motorista' ? 'Motorista' : 'Aluno',
+          autorRole: m.remetente_tipo || 'aluno',
+          texto: m.texto || '',
+          horario: dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          data: dataObj.toLocaleDateString('pt-BR'),
+          timestamp: dataObj.getTime(),
+          syncStatus: 'synced',
+        };
+      });
+
       const mapMsgs = new Map<string, ChatMessage>();
       mensagens.forEach((m) => mapMsgs.set(m.id, m));
-      response.data.forEach((m) => {
-        mapMsgs.set(m.id, { ...m, syncStatus: 'synced' });
-      });
+      msgsSupabase.forEach((m) => mapMsgs.set(m.id, m));
       mensagens = Array.from(mapMsgs.values());
       await storageHelper.setItem(storageKey, JSON.stringify(mensagens));
     }
   } catch {
+    // Modo offline preservado
+  }
     // Offline / fallback local resiliente
   }
 
@@ -2395,18 +2598,16 @@ export const enviarMensagemRota = async (
     console.warn('Erro ao salvar mensagem no storage local:', err);
   }
 
-  // Tenta enviar para o backend
+  // Tenta enviar para o Supabase (/mensagem)
   try {
-    const response = await apiClient.post(`/rotas/${roomKey}/mensagens`, {
-      autorId: novaMensagem.autorId,
-      autorNome: novaMensagem.autorNome,
-      autorRole: novaMensagem.autorRole,
+    const idViagemNum = Number(rotaIdOuNome) || 1;
+    const response = await apiClient.post('/mensagem', {
+      remetente_cpf: String(novaMensagem.autorId).replace(/\D/g, '') || '16005485474',
+      remetente_tipo: novaMensagem.autorRole === 'motorista' ? 'motorista' : 'aluno',
       texto: novaMensagem.texto,
-      horario: novaMensagem.horario,
-      data: novaMensagem.data,
-      timestamp: novaMensagem.timestamp,
+      viagem_id: idViagemNum,
     });
-    if (response?.data?.id) {
+    if (response?.ok || response?.status === 201) {
       novaMensagem.syncStatus = 'synced';
     }
   } catch {
@@ -2449,6 +2650,23 @@ export const limparChatRota = async (rotaIdOuNome: string): Promise<boolean> => 
 };
 
 export const getRotasParaChat = async (): Promise<Array<{ id: string; nome: string; escola?: string; horario?: string; alunosQtd: number }>> => {
+  // Rotas reais do backend: é a mesma lista que alunos e motoristas veem.
+  try {
+    const response = await apiClient.get<any[]>('/api/viagens');
+    if (Array.isArray(response.data) && response.data.length > 0) {
+      return response.data.map((v: any) => ({
+        id: String(v.id ?? ''),
+        nome: v.nomeRota || 'Rota',
+        escola: v.escola || '',
+        horario: formatarHoraApi(v.horario),
+        alunosQtd: 0,
+      }));
+    }
+  } catch (err: any) {
+    console.warn('Backend /api/viagens indisponível para o chat:', err?.message || err);
+  }
+
+  // Fallback para rotas criadas no navegador (cache local).
   try {
     const rawAdmin = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
     let rotas: Rota[] = [];
