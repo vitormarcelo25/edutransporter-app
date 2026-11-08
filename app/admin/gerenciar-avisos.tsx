@@ -90,8 +90,12 @@ export default function GerenciarAvisos() {
           text: 'Excluir',
           style: 'destructive',
           onPress: async () => {
-            await deleteAviso(avisoId);
-            setAvisos(avisos.filter((a) => a.id !== avisoId));
+            const res = await deleteAviso(avisoId);
+            if (res.success) {
+              setAvisos(avisos.filter((a) => a.id !== avisoId));
+            } else {
+              Alert.alert('Erro', res.message);
+            }
           },
         },
       ]
