@@ -551,11 +551,9 @@ export const login = async (
       console.warn('Backend login falhou ou indisponível:', backendErr?.message || backendErr);
       
       // Se for credencial inválida (401), checa se é usuário do mock de emergência
-      const credencialInvalida = backendErr?.status === 401;
-      if (!credencialInvalida) {
-        // Erro de rede/timeout: permite fallback para o mock
-      } else {
-        // Senha/CPF realmente errados no backend
+      // 403 = cadastro pendente/recusado no backend: mostra a mensagem dele.
+      // 401 ou falha de rede: segue para a consulta direta no Supabase abaixo.
+      if (backendErr?.status === 403) {
         throw backendErr;
       }
     }
@@ -820,9 +818,40 @@ export const adminLogin = async (codigo: string): Promise<LoginResponse> => {
     return { success: false, message: 'Informe a chave de acesso.' };
   }
 
+  // 0. Login no backend (Render): devolve um JWT de ADMIN válido para /api/*
+  try {
+    const response = await apiClient.post<any>('/auth/admin', { codigo: codLimpo }, { timeout: 90000 });
+    const data = response.data || {};
+    if (data.token) {
+      const userAdmin = {
+        id: 'admin',
+        nome: data.nomeCompleto || 'Administrador',
+        email: 'admin@edutransporte.pe.gov.br',
+        role: 'admin' as const,
+      };
+      try {
+        await storageHelper.setItem('user_data_v2', JSON.stringify(userAdmin));
+      } catch {}
+      return {
+        success: true,
+        token: data.token,
+        user: userAdmin,
+        status: 'aprovado',
+        message: 'Acesso administrativo autorizado.',
+      };
+    }
+  } catch (err: any) {
+    console.warn('Login de admin no backend falhou:', err?.message || err);
+    // Código errado no servidor: não libera o acesso localmente
+    if (err?.status === 401) {
+      return { success: false, message: 'Chave de acesso incorreta. Verifique o código e tente novamente.' };
+    }
+    // Backend fora do ar: segue para a validação local abaixo
+  }
+
   const adminCodeOficial = process.env.EXPO_PUBLIC_ADMIN_CODE || 'admin26';
 
-  // 1. Validação contra o código oficial
+  // 1. Validação contra o código oficial (reserva caso o backend esteja fora)
   if (codLimpo === adminCodeOficial || codLimpo === 'admin26' || codLimpo.toLowerCase() === 'admin') {
     const userAdmin = {
       id: 'admin',
@@ -1276,29 +1305,59 @@ export const marcarPresenca = async (alunoId: string, presente: boolean): Promis
   };
 };
 
-export const getAvisos = async (): Promise<AvisosResponse> => {
-  let avisosLocais: Aviso[] = [];
-  try {
-    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        avisosLocais = parsed;
-      }
-    }
-  } catch {}
+const TIPO_AVISO_APP: Record<string, Aviso['tipo']> = { urgente: 'urgente', info: 'info', ok: 'sucesso' };
+const TIPO_AVISO_BACKEND: Record<Aviso['tipo'], string> = { urgente: 'URGENTE', info: 'INFO', sucesso: 'OK' };
 
-  if (avisosLocais.length === 0) {
-    avisosLocais = [...MOCK_AVISOS];
-    try {
-      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(avisosLocais));
-    } catch {}
+const iconeAviso = (tipo: Aviso['tipo']) =>
+  tipo === 'urgente' ? 'warning' : tipo === 'sucesso' ? 'check-circle' : 'info';
+
+const formatarDataAviso = (valor?: string) => {
+  if (!valor) return '';
+  const d = new Date(valor);
+  if (isNaN(d.getTime())) return String(valor);
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? `Hoje, ${hora}` : `${d.toLocaleDateString('pt-BR')}, ${hora}`;
+};
+
+const mapAvisoBanco = (a: any): Aviso => {
+  const tipo = TIPO_AVISO_APP[String(a.tipo || '').toLowerCase()] || 'info';
+  return {
+    id: String(a.id),
+    tipo,
+    titulo: a.titulo || '',
+    descricao: a.descricao || '',
+    data: formatarDataAviso(a.data),
+    icon: a.icon || iconeAviso(tipo),
+  };
+};
+
+const salvarAvisosLocais = async (lista: Aviso[]) => {
+  try {
+    await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(lista));
+  } catch {}
+};
+
+export const getAvisos = async (): Promise<AvisosResponse> => {
+  // Lê direto do Supabase: funciona para admin, aluno e motorista
+  try {
+    const response = await apiClient.get<any[]>('/aviso?select=*&order=data.desc');
+    if (Array.isArray(response.data)) {
+      const avisos = response.data.filter((a) => a.ativo !== false).map(mapAvisoBanco);
+      await salvarAvisosLocais(avisos);
+      return { success: true, avisos };
+    }
+  } catch (err: any) {
+    console.warn('Não foi possível carregar avisos do banco:', err?.message || err);
   }
 
-  return {
-    success: true,
-    avisos: avisosLocais,
-  };
+  // Sem conexão: usa a última lista salva no aparelho
+  try {
+    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return { success: true, avisos: Array.isArray(parsed) ? parsed : [] };
+  } catch {
+    return { success: true, avisos: [] };
+  }
 };
 
 export const createAviso = async (dados: {
@@ -1310,39 +1369,37 @@ export const createAviso = async (dados: {
   if (!dados.titulo?.trim() || !dados.descricao?.trim()) {
     return { success: false, message: 'Título e descrição são obrigatórios.' };
   }
-
-  const agora = new Date();
-  const novoAviso: Aviso = {
-    id: `aviso_${Date.now()}`,
-    tipo: dados.tipo || 'info',
-    titulo: dados.titulo.trim(),
-    descricao: dados.descricao.trim(),
-    data: `Hoje, ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
-    icon: dados.tipo === 'urgente' ? 'warning' : dados.tipo === 'sucesso' ? 'check-circle' : 'info',
-  };
+  const tipo = dados.tipo || 'info';
 
   try {
-    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
-    const lista: Aviso[] = raw ? JSON.parse(raw) : [...MOCK_AVISOS];
-    lista.unshift(novoAviso);
-    await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(lista));
-  } catch (err) {
-    console.warn('Erro ao salvar aviso no storage:', err);
+    const response = await apiClient.post<any>('/api/avisos', {
+      titulo: dados.titulo.trim().slice(0, 100),
+      descricao: dados.descricao.trim(),
+      tipo: TIPO_AVISO_BACKEND[tipo],
+      icon: iconeAviso(tipo),
+      ativo: true,
+    });
+    return { success: true, aviso: mapAvisoBanco(response.data || {}), message: 'Aviso publicado com sucesso!' };
+  } catch (err: any) {
+    console.warn('Erro ao publicar aviso no backend:', err?.message || err);
+    const semPermissao = err?.status === 401 || err?.status === 403;
+    return {
+      success: false,
+      message: semPermissao
+        ? 'Sua sessão de administrador expirou. Saia e entre novamente.'
+        : 'Não foi possível publicar o aviso. Verifique a conexão e tente de novo.',
+    };
   }
-
-  return { success: true, aviso: novoAviso, message: 'Aviso publicado com sucesso!' };
 };
 
 export const deleteAviso = async (avisoId: string): Promise<{ success: boolean; message: string }> => {
   try {
-    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
-    if (raw) {
-      const lista: Aviso[] = JSON.parse(raw);
-      const filtrados = lista.filter((a) => a.id !== avisoId);
-      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(filtrados));
-    }
-  } catch {}
-  return { success: true, message: 'Aviso removido com sucesso!' };
+    await apiClient.delete(`/api/avisos/${encodeURIComponent(avisoId)}`);
+    return { success: true, message: 'Aviso removido com sucesso!' };
+  } catch (err: any) {
+    console.warn('Erro ao remover aviso no backend:', err?.message || err);
+    return { success: false, message: 'Não foi possível remover o aviso. Tente de novo.' };
+  }
 };
 
 // ==========================================
@@ -2542,6 +2599,12 @@ export const getMensagensRota = async (rotaIdOuNome: string): Promise<ChatMessag
         };
       });
 
+      // Remove cópias locais de mensagens que já chegaram ao banco
+      const assinatura = (m: ChatMessage) =>
+        `${String(m.autorId).replace(/\D/g, '')}|${m.texto.trim()}`;
+      const noBanco = new Set(msgsSupabase.map(assinatura));
+      mensagens = mensagens.filter((m) => m.id.startsWith('db_') || !noBanco.has(assinatura(m)));
+
       const mapMsgs = new Map<string, ChatMessage>();
       mensagens.forEach((m) => mapMsgs.set(m.id, m));
       msgsSupabase.forEach((m) => mapMsgs.set(m.id, m));
@@ -2604,6 +2667,7 @@ export const enviarMensagemRota = async (
       remetente_tipo: novaMensagem.autorRole === 'motorista' ? 'motorista' : 'aluno',
       texto: novaMensagem.texto,
       viagem_id: idViagemNum,
+      created_at: agora.toISOString(),
     });
     if (response?.ok || response?.status === 201) {
       novaMensagem.syncStatus = 'synced';

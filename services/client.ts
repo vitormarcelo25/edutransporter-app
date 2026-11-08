@@ -10,20 +10,31 @@ export const SUPABASE_URL =
 export const SUPABASE_ANON_KEY =
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_MOAD07HiYyyXZLbg5B43Mw_XX_1Bao-';
 
-const PRODUCTION_API_URL = `${SUPABASE_URL}/rest/v1`;
+// Tabelas do Supabase (PostgREST): /aluno, /motorista, /cidade, /mensagem...
+export const SUPABASE_REST_URL = `${SUPABASE_URL}/rest/v1`;
 
-const DEFAULT_API_URL = Platform.select({
-  android: PRODUCTION_API_URL,
-  ios: PRODUCTION_API_URL,
-  default: PRODUCTION_API_URL,
-});
+// Backend Spring Boot no Render: /auth/*, /api/*, /admin/*, /health
+const DEFAULT_BACKEND_URL = 'https://backend-edutransporte.onrender.com';
+const envBackendUrl = process.env.EXPO_PUBLIC_API_URL || '';
+export const BACKEND_URL = (
+  envBackendUrl && !envBackendUrl.includes('supabase.co') ? envBackendUrl : DEFAULT_BACKEND_URL
+).replace(/\/+$/, '');
 
-export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ||
-  process.env.VITE_API_URL ||
-  process.env.REACT_APP_API_URL ||
-  process.env.API_URL ||
-  DEFAULT_API_URL;
+// Mantido por compatibilidade com imports antigos
+export const API_BASE_URL = BACKEND_URL;
+
+const BACKEND_PREFIXES = ['/api/', '/auth/', '/admin/', '/health'];
+
+/** Decide se o endpoint vai para o backend no Render ou para o Supabase. */
+const resolveUrl = (endpoint: string): string => {
+  if (endpoint.startsWith('http')) return endpoint;
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const isBackend = BACKEND_PREFIXES.some((p) => path === p.replace(/\/$/, '') || path.startsWith(p));
+  return `${isBackend ? BACKEND_URL : SUPABASE_REST_URL}${path}`;
+};
+
+// Só envia ao backend tokens JWT reais (header.payload.assinatura)
+const isRealJwt = (token: string) => token.split('.').length === 3;
 
 // Storage helper compatível com Web e Mobile
 export const storageHelper = {
@@ -108,7 +119,7 @@ export interface ApiResponse<T = any> {
 async function request<T = any>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
   const { params, timeout = 90000, headers = {}, ...customConfig } = options;
 
-  let url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+  let url = resolveUrl(endpoint);
 
   if (params) {
     const searchParams = new URLSearchParams();
@@ -132,15 +143,11 @@ async function request<T = any>(endpoint: string, options: RequestOptions = {}):
     ...(headers as Record<string, string>),
   };
 
-  // Se a requisição for para o Supabase REST, injeta a apikey e o token
   if (url.includes('supabase.co')) {
+    // Supabase só aceita a própria chave; o token do backend faria ele responder 401
     reqHeaders['apikey'] = SUPABASE_ANON_KEY;
-    if (!reqHeaders['Authorization']) {
-      reqHeaders['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
-    }
-  }
-
-  if (token) {
+    reqHeaders['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
+  } else if (token && isRealJwt(token) && !reqHeaders['Authorization']) {
     reqHeaders['Authorization'] = `Bearer ${token}`;
   }
 
