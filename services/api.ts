@@ -2551,8 +2551,6 @@ export const getMensagensRota = async (rotaIdOuNome: string): Promise<ChatMessag
   } catch {
     // Modo offline preservado
   }
-    // Offline / fallback local resiliente
-  }
 
   return mensagens.sort((a, b) => a.timestamp - b.timestamp);
 };
