@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator
 } from 'react-native';
+import { Alert } from '@/components/Alert';
 import { Feather, FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,11 +31,11 @@ export default function HomeScreen() {
         if (result.ordem) setOrdemChegada(result.ordem);
         await loadRotaData();
       } else {
-        alert(result.message || 'Erro ao confirmar presença');
+        Alert.alert('Atenção', result.message || 'Erro ao confirmar presença');
       }
     } catch (error) {
       console.log('Erro ao confirmar:', error);
-      alert('Erro de conexão ao confirmar presença');
+      Alert.alert('Atenção', 'Erro de conexão ao confirmar presença');
     } finally {
       setLoadingConfirmacao(false);
     }
@@ -51,11 +52,11 @@ export default function HomeScreen() {
         setOrdemChegada(null);
         await loadRotaData();
       } else {
-        alert(result.message || 'Erro ao cancelar presença');
+        Alert.alert('Atenção', result.message || 'Erro ao cancelar presença');
       }
     } catch (error) {
       console.log('Erro ao cancelar:', error);
-      alert('Erro de conexão ao cancelar presença');
+      Alert.alert('Atenção', 'Erro de conexão ao cancelar presença');
     } finally {
       setLoadingConfirmacao(false);
     }
@@ -82,7 +83,8 @@ export default function HomeScreen() {
       const response = await getRotaDoDia(userRole === 'aluno' ? userData?.id : undefined);
       if (response.success && response.rota) {
         setRota(response.rota);
-        const meuAluno = response.rota.alunos.find((a: any) => a.id === userData?.id);
+        const meuCpf = String(userData?.id || '').replace(/\D/g, '');
+        const meuAluno = response.rota.alunos.find((a: any) => a.id === meuCpf || a.id === userData?.id);
         if (meuAluno) {
           setConfirmouPresenca(Boolean(meuAluno.confirmouPresenca));
           setAssentoAutomatico(meuAluno.assentoAutomatico ? Number(meuAluno.assentoAutomatico) : null);

@@ -13,6 +13,7 @@ import {
   TextInput,
   ActivityIndicator
 } from 'react-native';
+import { Alert } from '@/components/Alert';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 
@@ -41,6 +42,15 @@ export default function Listas() {
     setLoading(false);
     if (result.success && result.rota) {
       setRota(result.rota);
+      // Sincroniza o status do aluno com o servidor (assento = ordem de confirmação)
+      if (userRole === 'aluno' && userData?.id) {
+        const eu = result.rota.alunos.find((a) => a.id === String(userData.id).replace(/\D/g, ''));
+        if (eu) {
+          setConfirmouPresenca(Boolean(eu.confirmouPresenca));
+          setAssentoAutomatico(eu.assentoAutomatico ? Number(eu.assentoAutomatico) : null);
+          setOrdemChegada(eu.ordemChegada || null);
+        }
+      }
     }
   };
 
@@ -56,7 +66,7 @@ export default function Listas() {
           setRota({ ...rota, alunos: alunosAtualizados });
         }
       } else {
-        alert(res.message || 'Erro ao alterar presença');
+        Alert.alert('Atenção', res.message || 'Erro ao alterar presença');
       }
     } catch (err) {
       console.log('Erro ao alterar presença:', err);
@@ -211,7 +221,7 @@ export default function Listas() {
         if (res.ordem) setOrdemChegada(Number(res.ordem));
         await loadRota();
       } else {
-        alert(res.message || 'Não foi possível confirmar a presença.');
+        Alert.alert('Atenção', res.message || 'Não foi possível confirmar a presença.');
       }
     } finally {
       setConfirmando(false);

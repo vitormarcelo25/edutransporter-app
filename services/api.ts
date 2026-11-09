@@ -337,6 +337,8 @@ export interface ConvitesResponse {
 /** Backend devolve datas em ISO; o app usa texto pt-BR. */
 const formatarDataApi = (valor?: string | null): string => {
   if (!valor) return '';
+  const soData = String(valor).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
   const data = new Date(valor);
   if (Number.isNaN(data.getTime())) return String(valor);
   return data.toLocaleDateString('pt-BR');
@@ -966,13 +968,108 @@ export const register = async (data: {
 // 2. TELAS DE ALUNO: ROTAS, PRESENÇA E AVISOS
 // ==========================================
 
-/** Busca a viagem do dia (ou a primeira cadastrada) no backend real. */
-const obterViagemAtual = async (): Promise<any | null> => {
-  const response = await apiClient.get<any>('/api/viagens');
-  const lista = Array.isArray(response.data) ? response.data : [];
+// ==========================================
+// HELPERS SUPABASE (fonte única de dados para todos os aparelhos)
+// ==========================================
+
+const PREFER_RETORNO = { headers: { Prefer: 'return=representation' } };
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** Data de hoje no fuso do aparelho, no formato yyyy-MM-dd. */
+const hojeLocalIso = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+/** Início do dia de hoje (00:00 local) em ISO, para filtrar confirmações do dia. */
+const inicioDoDiaIso = (): string => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+};
+
+const textoNorm = (v?: string | null) => String(v || '').trim().toLowerCase();
+
+/** Converte uma linha da tabela "viagem" para o formato usado nas telas. */
+const normalizarViagemDb = (v: any) => ({
+  ...v,
+  id: v?.id,
+  data: v?.data,
+  horario: v?.horario,
+  tipo: v?.tipo,
+  status: v?.status,
+  nomeRota: v?.nome_rota ?? v?.nomeRota ?? '',
+  motoristaCpf: v?.motorista_cpf ?? v?.motoristaCpf ?? '',
+  veiculoPlaca: v?.veiculo_placa ?? v?.veiculoPlaca ?? '',
+});
+
+/** Lista as viagens cadastradas no Supabase (mais recentes primeiro). */
+const listarViagens = async (): Promise<any[]> => {
+  const response = await apiClient.get<any[]>('/viagem?select=*&order=data.desc,horario.desc,id.desc&limit=200');
+  return Array.isArray(response.data) ? response.data.map(normalizarViagemDb) : [];
+};
+
+/** Mesmo formato de retorno de apiClient.get, para reaproveitar o código existente. */
+const getViagensResp = async (): Promise<{ data: any[] }> => ({ data: await listarViagens() });
+
+/** Nome da rota do usuário logado (salvo na sessão). */
+const rotaNomeDaSessao = async (): Promise<string | undefined> => {
+  try {
+    const raw = await storageHelper.getItem('user_data_v2');
+    if (raw) return JSON.parse(raw)?.rotaNome || undefined;
+  } catch {}
+  return undefined;
+};
+
+/**
+ * Viagem atual: a de hoje da rota do aluno; senão a de hoje de qualquer rota;
+ * senão a mais recente da rota; senão a mais recente cadastrada.
+ */
+const obterViagemAtual = async (rotaNome?: string): Promise<any | null> => {
+  const lista = await listarViagens();
   if (!lista.length) return null;
-  const hoje = new Date().toISOString().slice(0, 10);
-  return lista.find((v: any) => String(v.data || '').slice(0, 10) === hoje) || lista[0];
+  const hoje = hojeLocalIso();
+  const nome = textoNorm(rotaNome || (await rotaNomeDaSessao()));
+  const daRota = nome ? lista.filter((v) => textoNorm(v.nomeRota) === nome) : [];
+  const ehHoje = (v: any) => String(v.data || '').slice(0, 10) === hoje;
+  return (
+    daRota.find(ehHoje) ||
+    lista.find(ehHoje) ||
+    daRota[0] ||
+    lista[0]
+  );
+};
+
+/**
+ * Presenças confirmadas HOJE numa viagem, em ordem de confirmação.
+ * A posição na lista define o assento (1º a confirmar = assento 1).
+ */
+const listarConfirmacoesDoDia = async (viagemId: any): Promise<any[]> => {
+  const response = await apiClient.get<any[]>(
+    `/presenca?viagem_id=eq.${encodeURIComponent(String(viagemId))}&presente=eq.true` +
+      `&confirmado_em=gte.${encodeURIComponent(inicioDoDiaIso())}&select=*&order=confirmado_em.asc`
+  );
+  return Array.isArray(response.data) ? response.data : [];
+};
+
+/** Grava (ou atualiza) a presença de um aluno numa viagem no Supabase. */
+const salvarPresencaDb = async (viagemId: any, alunoCpf: string, presente: boolean) => {
+  const cpf = String(alunoCpf).replace(/\D/g, '');
+  const filtro = `/presenca?viagem_id=eq.${encodeURIComponent(String(viagemId))}&aluno_cpf=eq.${cpf}`;
+  const dados = { presente, confirmado_em: new Date().toISOString() };
+
+  // Atualiza se já existir registro para este aluno nesta viagem...
+  const upd = await apiClient.patch<any[]>(filtro, dados, PREFER_RETORNO);
+  if (Array.isArray(upd.data) && upd.data.length > 0) return upd.data[0];
+
+  // ...senão cria um novo.
+  const ins = await apiClient.post<any[]>(
+    '/presenca',
+    { viagem_id: Number(viagemId) || viagemId, aluno_cpf: cpf, ...dados },
+    PREFER_RETORNO
+  );
+  return Array.isArray(ins.data) ? ins.data[0] : ins.data;
 };
 
 export const PARADAS_PADRAO_CARUARU: Parada[] = [
@@ -1136,28 +1233,48 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
     rotaEncontrada = adminRotas[adminRotas.length - 1];
   }
 
-  // O backend é consultado primeiro (rotas criadas no painel aparecem para todos).
+  // Fonte da verdade: Supabase (mesma viagem e presenças em todos os aparelhos).
   // Se o servidor estiver offline, cai para as rotas locais logo abaixo.
   try {
-    const viagem = await obterViagemAtual();
+    const viagem = await obterViagemAtual(rotaNomeAluno);
     if (viagem) {
       let paradasApi: any[] = [];
-      let presencasApi: any[] = [];
+      let todasPresencas: any[] = [];
+      let confirmadasHoje: any[] = [];
 
       try {
-        const respParadas = await apiClient.get<any[]>(`/api/viagens/${viagem.id}/paradas`);
+        const respParadas = await apiClient.get<any[]>(
+          `/parada?viagem_id=eq.${encodeURIComponent(String(viagem.id))}&select=*&order=ordem.asc`
+        );
         paradasApi = Array.isArray(respParadas.data) ? respParadas.data : [];
       } catch {
         paradasApi = [];
       }
 
       try {
-        const respPresencas = await apiClient.get<any[]>(`/api/viagens/${viagem.id}/presencas`);
-        presencasApi = Array.isArray(respPresencas.data) ? respPresencas.data : [];
+        const respPresencas = await apiClient.get<any[]>(
+          `/presenca?viagem_id=eq.${encodeURIComponent(String(viagem.id))}&select=*&order=confirmado_em.asc`
+        );
+        todasPresencas = Array.isArray(respPresencas.data) ? respPresencas.data : [];
+        confirmadasHoje = await listarConfirmacoesDoDia(viagem.id);
       } catch {
-        presencasApi = [];
+        todasPresencas = [];
       }
 
+      // Nomes dos alunos que têm registro de presença nesta viagem
+      const cpfs = Array.from(new Set(todasPresencas.map((p: any) => String(p.aluno_cpf || '')).filter(Boolean)));
+      if (cpfLimpo && !cpfs.includes(cpfLimpo)) cpfs.push(cpfLimpo);
+      const nomes: Record<string, string> = {};
+      if (cpfs.length > 0) {
+        try {
+          const respAlunos = await apiClient.get<any[]>(`/aluno?cpf=in.(${cpfs.join(',')})&select=cpf,nome_completo`);
+          (Array.isArray(respAlunos.data) ? respAlunos.data : []).forEach((al: any) => {
+            nomes[String(al.cpf)] = al.nome_completo || '';
+          });
+        } catch {}
+      }
+
+      const ordemHoje = confirmadasHoje.map((p: any) => String(p.aluno_cpf));
       const paradas: Parada[] = paradasApi.length > 0
         ? paradasApi.map((p: any) => ({
             id: String(p.ordem ?? p.id ?? Math.random()),
@@ -1168,15 +1285,20 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
           }))
         : PARADAS_PADRAO_CARUARU;
 
-      const alunos: RotaAluno[] = presencasApi.map((p: any, i: number) => ({
-        id: String(p.alunoCpf ?? ''),
-        nome: p.alunoNome || '',
-        escola: viagem.nomeRota || '',
-        parada: '',
-        presente: Boolean(p.presente),
-        confirmouPresenca: Boolean(p.presente),
-        ordemChegada: i + 1,
-      }));
+      const alunos: RotaAluno[] = cpfs.map((cpf) => {
+        const posicao = ordemHoje.indexOf(cpf);
+        const confirmou = posicao >= 0;
+        return {
+          id: cpf,
+          nome: nomes[cpf] || 'Aluno',
+          escola: viagem.nomeRota || '',
+          parada: '',
+          presente: confirmou,
+          confirmouPresenca: confirmou,
+          assentoAutomatico: confirmou ? posicao + 1 : undefined,
+          ordemChegada: confirmou ? posicao + 1 : undefined,
+        } as RotaAluno;
+      });
 
       return {
         success: true,
@@ -1193,7 +1315,7 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
       };
     }
   } catch (err: any) {
-    console.warn('Backend /api/viagens indisponível:', err?.message || err);
+    console.warn('Supabase /viagem indisponível:', err?.message || err);
   }
 
   // Backend indisponível: usa a rota salva localmente (modo offline).
@@ -1212,92 +1334,103 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
 };
 
 export const confirmarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
+  const cpf = String(alunoId || '').replace(/\D/g, '');
+  if (!cpf) return { success: false, message: 'Usuário não identificado. Faça login novamente.' };
   try {
-    // Endpoint real: POST /api/viagens/{viagemId}/presencas
     const viagem = await obterViagemAtual();
-    if (viagem) {
-      const response = await apiClient.post<any>(`/api/viagens/${viagem.id}/presencas`, {
-        alunoCpf: alunoId,
-        presente: true,
-      });
-      const data = response.data;
-      return {
-        success: true,
-        message: 'Presença confirmada!',
-        assento: data?.id || '3A',
-        ordem: data?.id || 3,
-      };
+    if (!viagem) {
+      return { success: false, message: 'Nenhuma viagem cadastrada para hoje. Fale com a coordenação.' };
     }
+    await salvarPresencaDb(viagem.id, cpf, true);
+
+    // Assento = ordem de confirmação de hoje (1º a confirmar fica com o assento 1)
+    const confirmadas = await listarConfirmacoesDoDia(viagem.id);
+    const posicao = confirmadas.findIndex((p: any) => String(p.aluno_cpf) === cpf);
+    const ordem = posicao >= 0 ? posicao + 1 : confirmadas.length || 1;
+    return {
+      success: true,
+      message: 'Presença confirmada!',
+      assento: ordem,
+      ordem,
+    };
   } catch (err: any) {
-    console.warn('Backend confirmação de presença indisponível:', err?.message || err);
+    console.warn('Erro ao confirmar presença no Supabase:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível confirmar a presença. Verifique sua conexão e tente novamente.'),
+    };
   }
-  return {
-    success: true,
-    message: 'Presença confirmada com sucesso (local)!',
-    assento: 3,
-    ordem: 3,
-  };
 };
 
 export const cancelarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
+  const cpf = String(alunoId || '').replace(/\D/g, '');
   try {
-    // Endpoint real: DELETE /api/viagens/{viagemId}/presencas/{alunoCpf}
     const viagem = await obterViagemAtual();
-    if (viagem) {
-      await apiClient.delete<any>(`/api/viagens/${viagem.id}/presencas/${encodeURIComponent(alunoId)}`);
-      return { success: true, message: 'Presença cancelada com sucesso.' };
-    }
+    if (!viagem) return { success: false, message: 'Nenhuma viagem encontrada.' };
+    await salvarPresencaDb(viagem.id, cpf, false);
+    return { success: true, message: 'Presença cancelada com sucesso.' };
   } catch (err: any) {
-    console.warn('Backend cancelamento de presença indisponível:', err?.message || err);
+    console.warn('Erro ao cancelar presença no Supabase:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível cancelar a presença. Tente novamente.'),
+    };
   }
-  return { success: true, message: 'Presença cancelada (local).' };
 };
 
 export const marcarPresenca = async (alunoId: string, presente: boolean): Promise<PresencaResponse> => {
   try {
-    // Endpoint real: POST /api/viagens/{viagemId}/presencas
     const viagem = await obterViagemAtual();
-    if (viagem) {
-      await apiClient.post<any>(`/api/viagens/${viagem.id}/presencas`, {
-        alunoCpf: alunoId,
-        presente,
-      });
-      return {
-        success: true,
-        message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
-      };
-    }
+    if (!viagem) return { success: false, message: 'Nenhuma viagem encontrada.' };
+    await salvarPresencaDb(viagem.id, alunoId, presente);
+    return {
+      success: true,
+      message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
+    };
   } catch (err: any) {
-    console.warn('Backend marcação de presença indisponível:', err?.message || err);
+    console.warn('Erro ao marcar presença no Supabase:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível salvar a presença. Tente novamente.'),
+    };
   }
-  return {
-    success: true,
-    message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
-  };
 };
 
+/** Ícone padrão de cada tipo de aviso. */
+const iconeDoAviso = (tipo: Aviso['tipo']) =>
+  tipo === 'urgente' ? 'warning' : tipo === 'sucesso' ? 'checkmark-circle' : 'information-circle';
+
 export const getAvisos = async (): Promise<AvisosResponse> => {
-  let avisosLocais: Aviso[] = [];
+  // Fonte da verdade: tabela "aviso" no Supabase (igual para todos os aparelhos).
+  try {
+    const response = await apiClient.get<any[]>('/aviso?select=*&order=id.desc');
+    const lista = (Array.isArray(response.data) ? response.data : [])
+      .filter((a: any) => a?.ativo !== false)
+      .map((a: any) => {
+        const aviso = normalizarAviso(a);
+        return { ...aviso, icon: aviso.icon || iconeDoAviso(aviso.tipo) };
+      });
+    try {
+      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(lista));
+    } catch {}
+    return { success: true, avisos: lista };
+  } catch (err: any) {
+    console.warn('Supabase /aviso indisponível, usando cache local:', err?.message || err);
+  }
+
+  // Sem conexão: mostra os últimos avisos baixados neste aparelho.
+  let avisosCache: Aviso[] = [];
   try {
     const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        avisosLocais = parsed;
-      }
+      if (Array.isArray(parsed)) avisosCache = parsed;
     }
   } catch {}
-
-  if (avisosLocais.length === 0) {
-    avisosLocais = [...MOCK_AVISOS];
-    try {
-      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(avisosLocais));
-    } catch {}
-  }
-
   return {
-    success: true,
-    avisos: avisosLocais,
+    success: avisosCache.length > 0,
+    avisos: avisosCache,
+    message: avisosCache.length > 0 ? undefined : 'Sem conexão com o servidor para carregar os avisos.',
   };
 };
 
@@ -1311,38 +1444,63 @@ export const createAviso = async (dados: {
     return { success: false, message: 'Título e descrição são obrigatórios.' };
   }
 
-  const agora = new Date();
-  const novoAviso: Aviso = {
-    id: `aviso_${Date.now()}`,
-    tipo: dados.tipo || 'info',
+  const tipo = dados.tipo || 'info';
+  const base = {
     titulo: dados.titulo.trim(),
     descricao: dados.descricao.trim(),
-    data: `Hoje, ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
-    icon: dados.tipo === 'urgente' ? 'warning' : dados.tipo === 'sucesso' ? 'check-circle' : 'info',
+    data: new Date().toISOString(),
+    icon: iconeDoAviso(tipo),
+    ativo: true,
   };
 
-  try {
-    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
-    const lista: Aviso[] = raw ? JSON.parse(raw) : [...MOCK_AVISOS];
-    lista.unshift(novoAviso);
-    await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(lista));
-  } catch (err) {
-    console.warn('Erro ao salvar aviso no storage:', err);
+  // O banco pode guardar o tipo em maiúsculas (padrão do backend) ou minúsculas.
+  const variantesTipo =
+    tipo === 'urgente' ? ['URGENTE', 'urgente'] : tipo === 'sucesso' ? ['SUCESSO', 'OK', 'sucesso'] : ['INFO', 'info'];
+
+  let ultimoErro: any = null;
+  for (const tipoDb of variantesTipo) {
+    try {
+      const response = await apiClient.post<any[]>('/aviso', { ...base, tipo: tipoDb }, PREFER_RETORNO);
+      const linha = Array.isArray(response.data) ? response.data[0] : response.data;
+      const aviso = linha ? normalizarAviso(linha) : normalizarAviso({ ...base, tipo: tipoDb });
+      return {
+        success: true,
+        aviso: { ...aviso, icon: aviso.icon || iconeDoAviso(aviso.tipo) },
+        message: 'Aviso publicado com sucesso!',
+      };
+    } catch (err: any) {
+      ultimoErro = err;
+      // Só tenta outra grafia do tipo se o erro for de validação dos dados
+      if (err?.status !== 400) break;
+    }
   }
 
-  return { success: true, aviso: novoAviso, message: 'Aviso publicado com sucesso!' };
+  console.warn('Erro ao publicar aviso no Supabase:', ultimoErro?.message || ultimoErro);
+  return {
+    success: false,
+    message: getApiErrorMessage(ultimoErro, 'Não foi possível publicar o aviso no servidor.'),
+  };
 };
 
 export const deleteAviso = async (avisoId: string): Promise<{ success: boolean; message: string }> => {
+  const filtro = `/aviso?id=eq.${encodeURIComponent(String(avisoId))}`;
   try {
-    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
-    if (raw) {
-      const lista: Aviso[] = JSON.parse(raw);
-      const filtrados = lista.filter((a) => a.id !== avisoId);
-      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(filtrados));
+    const resp = await apiClient.delete<any[]>(filtro, PREFER_RETORNO);
+    if (Array.isArray(resp.data) && resp.data.length > 0) {
+      return { success: true, message: 'Aviso removido com sucesso!' };
     }
-  } catch {}
-  return { success: true, message: 'Aviso removido com sucesso!' };
+    // Sem permissão para apagar: desativa o aviso para que suma de todos os aparelhos
+    const upd = await apiClient.patch<any[]>(filtro, { ativo: false }, PREFER_RETORNO);
+    if (Array.isArray(upd.data) && upd.data.length > 0) {
+      return { success: true, message: 'Aviso removido com sucesso!' };
+    }
+    return { success: false, message: 'O servidor não permitiu remover este aviso.' };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível remover o aviso no servidor.'),
+    };
+  }
 };
 
 // ==========================================
@@ -1440,10 +1598,8 @@ export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean
 export const getHistorico = async (): Promise<HistoricoResponse> => {
   try {
     // Endpoint real do backend: /api/viagens
-    const response = await apiClient.get<any>('/api/viagens');
-    const lista = Array.isArray(response.data)
-      ? response.data
-      : response.data?.viagens;
+    const response = await getViagensResp();
+    const lista = response.data;
     if (Array.isArray(lista)) {
       return {
         success: true,
@@ -1888,15 +2044,15 @@ export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
   try {
     // Monta as estatísticas a partir dos endpoints reais do backend
     const [alunosResp, motoristasResp, avisosResp, viagensResp] = await Promise.all([
-      apiClient.get<any[]>('/api/usuarios/alunos'),
-      apiClient.get<any[]>('/api/usuarios/motoristas'),
-      apiClient.get<any[]>('/api/avisos'),
-      apiClient.get<any[]>('/api/viagens'),
+      apiClient.get<any[]>('/aluno?select=cpf,status'),
+      apiClient.get<any[]>('/motorista?select=cpf'),
+      apiClient.get<any[]>('/aviso?select=id,ativo'),
+      getViagensResp(),
     ]);
 
     const alunos = Array.isArray(alunosResp.data) ? alunosResp.data : [];
     const motoristas = Array.isArray(motoristasResp.data) ? motoristasResp.data : [];
-    const avisos = Array.isArray(avisosResp.data) ? avisosResp.data : [];
+    const avisos = (Array.isArray(avisosResp.data) ? avisosResp.data : []).filter((a: any) => a?.ativo !== false);
     const viagens = Array.isArray(viagensResp.data) ? viagensResp.data : [];
 
     return {
@@ -2100,7 +2256,7 @@ const normalizarFeriado = (f: any): Feriado => ({
 
 export const getFeriados = async (): Promise<FeriadosResponse> => {
   try {
-    const response = await apiClient.get<any[]>('/admin/feriados');
+    const response = await apiClient.get<any[]>('/feriado?select=*&order=data.asc');
     const lista = Array.isArray(response.data) ? response.data : [];
     const feriados = lista.map(normalizarFeriado);
     try {
@@ -2108,7 +2264,7 @@ export const getFeriados = async (): Promise<FeriadosResponse> => {
     } catch {}
     return { success: true, feriados };
   } catch (err: any) {
-    console.warn('Backend /admin/feriados indisponível:', err?.message || err);
+    console.warn('Supabase /feriado indisponível:', err?.message || err);
     let feriadosLocais: Feriado[] = [];
     try {
       const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
@@ -2136,12 +2292,13 @@ export const createFeriado = async (data: { nome: string; data: string; motivo: 
   }
 
   try {
-    const response = await apiClient.post<any>('/admin/feriados', {
+    const response = await apiClient.post<any[]>('/feriado', {
       data: dataIso,
       nome: data.nome.trim(),
       descricao: data.motivo?.trim() || 'Evento escolar / Feriado',
-    });
-    const feriado = normalizarFeriado(response.data);
+    }, PREFER_RETORNO);
+    const linha = Array.isArray(response.data) ? response.data[0] : response.data;
+    const feriado = normalizarFeriado(linha || { data: dataIso, nome: data.nome.trim(), descricao: data.motivo });
     try {
       const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
       const lista: Feriado[] = raw ? JSON.parse(raw) : [];
@@ -2152,7 +2309,9 @@ export const createFeriado = async (data: { nome: string; data: string; motivo: 
   } catch (err: any) {
     return {
       success: false,
-      message: getApiErrorMessage(err, 'Não foi possível cadastrar o feriado no servidor.'),
+      message: err?.status === 409
+        ? 'Já existe um feriado/evento cadastrado nesta data.'
+        : getApiErrorMessage(err, 'Não foi possível cadastrar o feriado no servidor.'),
     };
   }
 };
@@ -2176,7 +2335,7 @@ export const deleteFeriado = async (feriadoId: string): Promise<{ success: boole
   }
 
   try {
-    await apiClient.delete(`/admin/feriados/${dataIso}`);
+    await apiClient.delete(`/feriado?data=eq.${dataIso}`);
     await removerDoCache();
     return { success: true, message: 'Feriado excluído com sucesso!' };
   } catch (err: any) {
@@ -2249,67 +2408,114 @@ export const createConvite = async (): Promise<{ success: boolean; convite?: Con
 // 5. PERFIL DO USUÁRIO
 // ==========================================
 
-export const getPerfil = async (): Promise<PerfilResponse> => {
-  // Fonte da verdade: backend (dados atualizados em qualquer aparelho).
-  try {
-    const resp = await apiClient.get<any>('/api/usuarios/perfil');
-    const p = resp.data;
-    if (p) {
-      return {
-        success: true,
-        usuario: {
-          id: String(p.id || ''),
-          nome: p.nome || '',
-          email: p.email || '',
-          telefone: p.telefone || '',
-          cidade: p.cidade || '',
-          role: p.role === 'motorista' ? 'motorista' : p.role === 'admin' ? 'admin' : 'aluno',
-          escola: p.escola || '',
-        },
-      };
-    }
-  } catch (err: any) {
-    console.warn('Backend /api/usuarios/perfil indisponível:', err?.message || err);
-  }
-
+/** Lê o usuário logado salvo na sessão deste aparelho. */
+const usuarioDaSessao = async (): Promise<any | null> => {
   try {
     const raw = await storageHelper.getItem('user_data_v2');
-    if (raw) {
-      const u = JSON.parse(raw);
-      return {
-        success: true,
-        usuario: {
-          id: String(u.id || ''),
-          nome: u.nome || '',
-          email: u.email || '',
-          telefone: u.telefone || '',
-          cidade: u.cidade || '',
-          role: u.role === 'motorista' ? 'motorista' : u.role === 'admin' ? 'admin' : 'aluno',
-          escola: u.escola || '',
-        },
-      };
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Formata telefone brasileiro: (00) 00000-0000 ou (00) 0000-0000. */
+export const formatarTelefone = (valor?: string | null): string => {
+  const d = String(valor || '').replace(/\D/g, '').slice(0, 11);
+  if (d.length === 0) return '';
+  if (d.length <= 2) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+};
+
+export const getPerfil = async (): Promise<PerfilResponse> => {
+  const sessao = await usuarioDaSessao();
+  if (!sessao) return { success: false, message: 'Usuário não autenticado.' };
+
+  const role: Usuario['role'] = sessao.role === 'motorista' ? 'motorista' : sessao.role === 'admin' ? 'admin' : 'aluno';
+  const cpf = String(sessao.id || '').replace(/\D/g, '');
+  const usuario: Usuario = {
+    id: String(sessao.id || ''),
+    nome: sessao.nome || '',
+    email: sessao.email || '',
+    telefone: sessao.telefone || '',
+    cidade: sessao.cidade || '',
+    role,
+    escola: sessao.escola || '',
+  };
+
+  // Fonte da verdade: Supabase (dados iguais em qualquer aparelho).
+  if (cpf.length === 11 && role !== 'admin') {
+    try {
+      const tabela = role === 'motorista' ? 'motorista' : 'aluno';
+      const resp = await apiClient.get<any[]>(`/${tabela}?cpf=eq.${cpf}&select=*`);
+      const db = Array.isArray(resp.data) ? resp.data[0] : null;
+      if (db) {
+        const [cidades, faculdades] = await Promise.all([getCidades(), getInstituicoes()]);
+        usuario.nome = db.nome_completo || usuario.nome;
+        usuario.telefone = formatarTelefone(db.numero_celular) || usuario.telefone;
+        if (db.email) usuario.email = db.email;
+        const cidade = cidades.find((c) => Number(c.id) === Number(db.cidade_id));
+        if (cidade) usuario.cidade = cidade.nome;
+        const faculdade = faculdades.find((f) => Number(f.id) === Number(db.faculdade_id));
+        if (faculdade) usuario.escola = faculdade.nome;
+      }
+    } catch (err: any) {
+      console.warn('Supabase perfil indisponível, usando dados da sessão:', err?.message || err);
     }
-  } catch (err: any) {
-    console.warn('Perfil local indisponível:', err?.message || err);
   }
 
-  return { success: false, message: 'Usuário não autenticado.' };
+  return { success: true, usuario };
 };
 
 export const updatePerfil = async (data: Partial<Usuario>): Promise<PerfilUpdateResponse> => {
+  const sessao = await usuarioDaSessao();
+  if (!sessao) return { success: false, message: 'Sessão expirada. Faça login novamente.' };
+
+  const role = sessao.role === 'motorista' ? 'motorista' : sessao.role === 'admin' ? 'admin' : 'aluno';
+  const cpf = String(sessao.id || '').replace(/\D/g, '');
+  const telefoneDigitos = String(data.telefone || '').replace(/\D/g, '');
+
+  if (telefoneDigitos && telefoneDigitos.length < 10) {
+    return { success: false, message: 'Telefone incompleto. Use o formato (00) 00000-0000.' };
+  }
+
   try {
-    const response = await apiClient.put<any>('/api/usuarios/perfil', {
-      nome: data.nome,
-      email: data.email,
-      telefone: data.telefone,
-      cidade: data.cidade,
-      escola: data.escola,
-    });
-    return { success: true, message: response.data?.message || 'Perfil atualizado com sucesso!' };
+    if (role !== 'admin' && cpf.length === 11) {
+      const [cidades, faculdades] = await Promise.all([getCidades(), getInstituicoes()]);
+      const cidade = cidades.find((c) => textoNorm(c.nome) === textoNorm(data.cidade));
+      const faculdade = faculdades.find((f) => textoNorm(f.nome) === textoNorm(data.escola));
+
+      const payload: Record<string, any> = {};
+      if (data.nome?.trim()) payload.nome_completo = data.nome.trim();
+      if (telefoneDigitos) payload.numero_celular = telefoneDigitos;
+      if (cidade) payload.cidade_id = cidade.id;
+      if (role === 'aluno' && faculdade) payload.faculdade_id = faculdade.id;
+      if (role === 'motorista' && data.email?.trim()) payload.email = data.email.trim();
+
+      const tabela = role === 'motorista' ? 'motorista' : 'aluno';
+      const resp = await apiClient.patch<any[]>(`/${tabela}?cpf=eq.${cpf}`, payload, PREFER_RETORNO);
+      if (!Array.isArray(resp.data) || resp.data.length === 0) {
+        return { success: false, message: 'O servidor não permitiu salvar as alterações. Tente novamente mais tarde.' };
+      }
+    }
+
+    // Atualiza a sessão deste aparelho com os novos dados
+    const atualizado = {
+      ...sessao,
+      nome: data.nome?.trim() || sessao.nome,
+      email: data.email?.trim() || sessao.email,
+      telefone: formatarTelefone(telefoneDigitos),
+      cidade: data.cidade || '',
+      escola: data.escola || '',
+    };
+    await storageHelper.setItem('user_data_v2', JSON.stringify(atualizado));
+
+    return { success: true, message: 'Suas informações foram atualizadas no servidor e já aparecem em todos os seus aparelhos.' };
   } catch (err: any) {
     return {
       success: false,
-      message: getApiErrorMessage(err, 'Não foi possível atualizar o perfil no servidor.'),
+      message: getApiErrorMessage(err, 'Não foi possível salvar o perfil no servidor.'),
     };
   }
 };
@@ -2341,7 +2547,7 @@ export const alterarSenha = async (senhaAtual: string, novaSenha: string): Promi
 export const getRotasAgenda = async (): Promise<AgendaResponse> => {
   let viagensDb: any[] = [];
   try {
-    const response = await apiClient.get<any[]>('/api/viagens');
+    const response = await getViagensResp();
     if (Array.isArray(response.data)) {
       viagensDb = response.data;
     }
@@ -2650,7 +2856,7 @@ export const limparChatRota = async (rotaIdOuNome: string): Promise<boolean> => 
 export const getRotasParaChat = async (): Promise<Array<{ id: string; nome: string; escola?: string; horario?: string; alunosQtd: number }>> => {
   // Rotas reais do backend: é a mesma lista que alunos e motoristas veem.
   try {
-    const response = await apiClient.get<any[]>('/api/viagens');
+    const response = await getViagensResp();
     if (Array.isArray(response.data) && response.data.length > 0) {
       return response.data.map((v: any) => ({
         id: String(v.id ?? ''),

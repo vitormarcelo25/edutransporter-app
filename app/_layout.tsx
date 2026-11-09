@@ -6,6 +6,7 @@ import { AppProvider, useApp } from '../contexts/AppContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { warmUpBackend } from '../services/api';
+import { AppAlertHost } from '../components/ui/AppAlertHost';
 
 export { useApp };
 
@@ -48,6 +49,9 @@ function RootLayoutNav() {
         <Stack.Screen name="admin" />
         <Stack.Screen name="admin-login" />
       </Stack>
+
+      {/* Janelas de alerta/confirmação com o visual do app */}
+      <AppAlertHost />
     </View>
   );
 }

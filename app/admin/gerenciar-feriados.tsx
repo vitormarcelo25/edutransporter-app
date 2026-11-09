@@ -24,6 +24,25 @@ import { useApp } from '../_layout';
 import { getFeriados, createFeriado, deleteFeriado, FeriadosResponse, Feriado } from '../../services/api';
 import { Alert } from '@/components/Alert';
 
+/** Máscara de data enquanto digita: DD/MM/AAAA (8 dígitos). */
+const formatarDataDigitada = (valor: string): string => {
+  const d = valor.replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+};
+
+/** Confere se DD/MM/AAAA é uma data que existe no calendário. */
+const dataValida = (valor: string): boolean => {
+  const m = valor.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return false;
+  const dia = Number(m[1]);
+  const mes = Number(m[2]);
+  const ano = Number(m[3]);
+  const dt = new Date(ano, mes - 1, dia);
+  return ano >= 2000 && dt.getFullYear() === ano && dt.getMonth() === mes - 1 && dt.getDate() === dia;
+};
+
 export default function GerenciarFeriados() {
   const router = useRouter();
   const { theme, userRole } = useApp();
@@ -59,6 +78,10 @@ export default function GerenciarFeriados() {
       Alert.alert('Campo Obrigatório', 'Informe a data (ex: 21/04/2026).');
       return;
     }
+    if (!dataValida(dataFeriado.trim())) {
+      Alert.alert('Data inválida', 'Digite a data completa no formato DD/MM/AAAA (ex: 21/04/2026).');
+      return;
+    }
 
     setSalvando(true);
     const res = await createFeriado({
@@ -69,7 +92,7 @@ export default function GerenciarFeriados() {
     setSalvando(false);
 
     if (res.success && res.feriado) {
-      setFeriados([...feriados, res.feriado]);
+      await loadFeriados();
       setModalVisible(false);
       setNome('');
       setDataFeriado('');
@@ -90,8 +113,12 @@ export default function GerenciarFeriados() {
           text: 'Excluir', 
           style: 'destructive',
           onPress: async () => {
-            await deleteFeriado(feriadoId);
-            setFeriados(feriados.filter((f) => f.id !== feriadoId));
+            const res = await deleteFeriado(feriadoId);
+            if (res.success) {
+              setFeriados((atual) => atual.filter((f) => f.id !== feriadoId));
+            } else {
+              Alert.alert('Erro', res.message || 'Não foi possível excluir o feriado.');
+            }
           }
         },
       ]
@@ -226,8 +253,9 @@ export default function GerenciarFeriados() {
                 placeholder="Ex: 24/06/2026"
                 placeholderTextColor="#64748B"
                 value={dataFeriado}
-                onChangeText={setDataFeriado}
-                keyboardType="numeric"
+                onChangeText={(v) => setDataFeriado(formatarDataDigitada(v))}
+                keyboardType="number-pad"
+                maxLength={10}
               />
 
               <Text style={styles.inputLabel}>Impacto no Transporte:</Text>

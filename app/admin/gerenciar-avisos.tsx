@@ -69,12 +69,12 @@ export default function GerenciarAvisos() {
     setSalvando(false);
 
     if (res.success && res.aviso) {
-      setAvisos([res.aviso, ...avisos]);
+      await loadAvisos();
       setModalVisible(false);
       setTitulo('');
       setDescricao('');
       setTipo('info');
-      Alert.alert('Sucesso', 'Aviso oficial publicado com sucesso!');
+      Alert.alert('Aviso publicado!', 'O aviso já está disponível para todos os alunos e motoristas.');
     } else {
       Alert.alert('Erro', res.message || 'Não foi possível salvar o aviso.');
     }
@@ -90,8 +90,12 @@ export default function GerenciarAvisos() {
           text: 'Excluir',
           style: 'destructive',
           onPress: async () => {
-            await deleteAviso(avisoId);
-            setAvisos(avisos.filter((a) => a.id !== avisoId));
+            const res = await deleteAviso(avisoId);
+            if (res.success) {
+              setAvisos((atual) => atual.filter((a) => a.id !== avisoId));
+            } else {
+              Alert.alert('Erro', res.message || 'Não foi possível excluir o aviso.');
+            }
           },
         },
       ]

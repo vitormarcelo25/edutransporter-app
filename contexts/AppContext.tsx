@@ -27,6 +27,7 @@ interface UserData {
   rotaNome?: string;
   escola?: string;
   cidade?: string;
+  telefone?: string;
 }
 
 const AppContext = createContext({

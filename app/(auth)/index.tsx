@@ -13,6 +13,7 @@ import {
   StyleSheet, Text, View, TextInput, TouchableOpacity, 
   ScrollView, StatusBar, Dimensions, Animated, Easing 
 } from 'react-native';
+import { Alert } from '@/components/Alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 /* Icones do projeto */
@@ -259,11 +260,11 @@ export default function Index() {
         
         router.replace('/(tabs)/home');
       } else {
-        alert(result.message || 'Erro ao fazer login');
+        Alert.alert('Atenção', result.message || 'Erro ao fazer login');
       }
     } catch (error) {
       console.log('Login error:', error);
-      alert('Erro de conexão');
+      Alert.alert('Atenção', 'Erro de conexão');
     }
     
     setLoading(false);
