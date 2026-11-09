@@ -4,7 +4,15 @@
  * Fallback resiliente com Mock quando o servidor local não estiver ativo
  */
 
-import { apiClient, getApiErrorMessage, API_BASE_URL, storageHelper, setOnUnauthorized } from './client';
+import {
+  apiClient,
+  getApiErrorMessage,
+  API_BASE_URL,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  storageHelper,
+  setOnUnauthorized,
+} from './client';
 
 export { API_BASE_URL, storageHelper, setOnUnauthorized };
 
@@ -513,6 +521,88 @@ let MOCK_AVISOS: Aviso[] = [
 // 1. AUTENTICAÇÃO E CADASTRO
 // ==========================================
 
+interface LoginRpcResult {
+  resultado: 'ok' | 'pendente' | 'recusado' | 'tipo_incorreto' | 'invalido';
+  usuario?: { tipo: 'aluno' | 'motorista'; cpf: string; nome_completo?: string; email?: string; status?: string };
+  motivo_recusa?: string | null;
+  tipo_real?: 'aluno' | 'motorista';
+}
+
+/**
+ * Chama a função `login_usuario` no Supabase, que confere a senha (bcrypt)
+ * no servidor e devolve só campos seguros.
+ * Retorna null quando o servidor não pôde ser consultado (rede/função ausente).
+ */
+const loginViaSupabase = async (
+  cpfLimpo: string,
+  senha: string,
+  tipo: 'aluno' | 'motorista'
+): Promise<LoginRpcResult | null> => {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 30000) : null;
+  try {
+    // fetch direto: não envia o token local (não é um JWT do Supabase).
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/login_usuario`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ p_cpf: cpfLimpo, p_senha: senha, p_tipo: tipo }),
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!resp.ok) {
+      console.warn('Login no Supabase indisponível:', resp.status);
+      return null;
+    }
+    const data = await resp.json();
+    return data && typeof data.resultado === 'string' ? (data as LoginRpcResult) : null;
+  } catch (err: any) {
+    console.warn('Erro ao consultar login no Supabase:', err?.message || err);
+    return null;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
+/** Mensagem de pendente/recusado para solicitações salvas neste aparelho. */
+const statusSolicitacaoLocal = async (cpfLimpo: string): Promise<LoginResponse | null> => {
+  let sol: SolicitacaoAluno | undefined;
+  try {
+    const rawSol = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
+    if (rawSol) {
+      const sols: SolicitacaoAluno[] = JSON.parse(rawSol);
+      sol = sols.find((s) => s.cpf === cpfLimpo);
+    }
+  } catch {}
+  if (!sol) sol = MOCK_SOLICITACOES.find((s) => s.cpf === cpfLimpo);
+  if (!sol) return null;
+
+  try {
+    const rawAprov = await storageHelper.getItem(APROVACOES_STORAGE_KEY);
+    const aprovados: string[] = rawAprov ? JSON.parse(rawAprov) : [];
+    if (aprovados.includes(cpfLimpo)) return null;
+  } catch {}
+
+  if (sol.status === 'pendente') {
+    return {
+      success: false,
+      status: 'pendente',
+      message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
+    };
+  }
+  if (sol.status === 'recusada') {
+    return {
+      success: false,
+      status: 'recusado',
+      message: `Sua solicitação foi recusada: ${sol.motivoRecusa || 'Documentação não conferida.'}`,
+    };
+  }
+  return null;
+};
+
 export const login = async (
   email?: string,
   pass?: string,
@@ -603,33 +693,17 @@ export const login = async (
     }
 
     // ==========================================
-    // 1. TENTATIVA NO SUPABASE / BACKEND OFICIAL
+    // 1. VERIFICAÇÃO NO SERVIDOR (Supabase RPC login_usuario)
+    // A senha é conferida no banco (bcrypt); o app nunca lê a coluna `senha`.
     // ==========================================
-    if (roleFinal === 'aluno') {
-      try {
-        const respAluno = await apiClient.get<any[]>(`/aluno?cpf=eq.${cpfLimpo}&select=*`);
-        if (Array.isArray(respAluno.data) && respAluno.data.length > 0) {
-          const alunoDb = respAluno.data[0];
+    const rpc = await loginViaSupabase(cpfLimpo, pass, roleFinal);
+    if (rpc) {
+      if (rpc.resultado === 'ok' && rpc.usuario) {
+        const u = rpc.usuario;
+        const isMotorista = u.tipo === 'motorista';
 
-          // Verifica status de aprovação
-          const statusDb = String(alunoDb.status || '').toUpperCase();
-          if (statusDb === 'PENDENTE') {
-            return {
-              success: false,
-              status: 'pendente',
-              message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
-            };
-          }
-          if (statusDb === 'RECUSADO') {
-            return {
-              success: false,
-              status: 'recusado',
-              message: `Sua solicitação foi recusada: ${alunoDb.motivo_recusa || 'Documentação não conferida.'}`,
-            };
-          }
-
-          // Descobre rota atribuída
-          let rotaAtribuida = 'Linha 01 - Nassau Noturno';
+        let rotaAtribuida = 'Linha 01 - Nassau Noturno';
+        if (!isMotorista) {
           try {
             const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
             if (rawMap) {
@@ -637,67 +711,68 @@ export const login = async (
               if (mapRotas[cpfLimpo]) rotaAtribuida = mapRotas[cpfLimpo];
             }
           } catch {}
-
-          const userRetorno = {
-            id: String(alunoDb.cpf || cpfLimpo),
-            nome: alunoDb.nome_completo || 'Aluno',
-            email: valor.includes('@') ? valor : `${cpfLimpo}@aluno.edutransporte`,
-            role: 'aluno' as const,
-            rotaNome: rotaAtribuida,
-          };
-
-          await storageHelper.setItem('user_data_v2', JSON.stringify(userRetorno));
-
-          return {
-            success: true,
-            token: `jwt_supabase_${cpfLimpo}_${Date.now()}`,
-            user: userRetorno,
-            status: 'aprovado',
-            message: 'Login realizado com sucesso.',
-          };
         }
-      } catch (errSupabase) {
-        console.warn('Erro ao consultar aluno no Supabase:', errSupabase);
-      }
-    } else {
-      // Motorista no Supabase
-      try {
-        const respMot = await apiClient.get<any[]>(`/motorista?cpf=eq.${cpfLimpo}&select=*`);
-        if (Array.isArray(respMot.data) && respMot.data.length > 0) {
-          const motDb = respMot.data[0];
-          
-          if (motDb.senha && pass.trim() !== String(motDb.senha).trim()) {
-            return {
-              success: false,
-              message: 'Senha incorreta para este motorista.',
-            };
-          }
 
-          const userRetorno = {
-            id: String(motDb.cpf || cpfLimpo),
-            nome: motDb.nome_completo || 'Motorista',
-            email: motDb.email || `${cpfLimpo}@motorista.edutransporte`,
-            role: 'motorista' as const,
-            rotaNome: 'Linha 01 - Nassau Noturno',
-          };
+        const userRetorno = {
+          id: String(u.cpf || cpfLimpo),
+          nome: u.nome_completo || (isMotorista ? 'Motorista' : 'Aluno'),
+          email: isMotorista
+            ? u.email || `${cpfLimpo}@motorista.edutransporte`
+            : valor.includes('@') ? valor : `${cpfLimpo}@aluno.edutransporte`,
+          role: (isMotorista ? 'motorista' : 'aluno') as 'motorista' | 'aluno',
+          rotaNome: rotaAtribuida,
+        };
 
+        try {
           await storageHelper.setItem('user_data_v2', JSON.stringify(userRetorno));
+        } catch {}
 
-          return {
-            success: true,
-            token: `jwt_supabase_mot_${cpfLimpo}_${Date.now()}`,
-            user: userRetorno,
-            status: 'aprovado',
-            message: 'Login realizado com sucesso.',
-          };
-        }
-      } catch (errMot) {
-        console.warn('Erro ao consultar motorista no Supabase:', errMot);
+        return {
+          success: true,
+          token: `${isMotorista ? 'jwt_supabase_mot_' : 'jwt_supabase_'}${cpfLimpo}_${Date.now()}`,
+          user: userRetorno,
+          status: 'aprovado',
+          message: 'Login realizado com sucesso.',
+        };
       }
+
+      if (rpc.resultado === 'pendente') {
+        return {
+          success: false,
+          status: 'pendente',
+          message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
+        };
+      }
+
+      if (rpc.resultado === 'recusado') {
+        return {
+          success: false,
+          status: 'recusado',
+          message: `Sua solicitação foi recusada: ${rpc.motivo_recusa || 'Documentação não conferida.'}`,
+        };
+      }
+
+      if (rpc.resultado === 'tipo_incorreto') {
+        return {
+          success: false,
+          message: rpc.tipo_real === 'motorista'
+            ? 'Este CPF pertence a um motorista. Selecione a opção Motorista.'
+            : 'Este CPF pertence a um aluno. Selecione a opção Aluno.',
+        };
+      }
+
+      // 'invalido': CPF inexistente ou senha errada. O servidor respondeu,
+      // então nunca liberamos o acesso a partir dos dados locais; só
+      // mostramos o status de uma solicitação feita neste aparelho.
+      if (roleFinal === 'aluno') {
+        const statusLocal = await statusSolicitacaoLocal(cpfLimpo);
+        if (statusLocal) return statusLocal;
+      }
+      return { success: false, message: 'CPF ou senha incorretos.' };
     }
 
     // ==========================================
-    // 2. VERIFICAÇÃO LOCAL DE SOLICITAÇÕES / APROVAÇÕES
+    // 2. MODO OFFLINE: servidor inacessível, usa os dados de demonstração locais
     // ==========================================
     if (roleFinal === 'aluno') {
       let sol: SolicitacaoAluno | undefined;
