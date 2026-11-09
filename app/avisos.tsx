@@ -38,7 +38,6 @@ export default function Avisos() {
       
       if (result.success && result.avisos) {
         setAvisos(result.avisos);
-        addToast('success', 'Avisos carregados!');
         
         // Envia notificação para cada aviso urgente
         result.avisos.forEach((aviso) => {
@@ -65,12 +64,6 @@ export default function Avisos() {
     loadAvisos();
   };
   
-  // Função que testa o envio de notificação
-  const handleTestNotification = () => {
-    sendAvisoNotification('Teste de Notificação', 'Esta é uma notificação de teste do EduTransporte!');
-    addToast('success', 'Notificação de teste enviada!');
-  };
-
   useEffect(() => {
     loadAvisos();
   }, []);
@@ -159,8 +152,8 @@ export default function Avisos() {
           <Feather name="arrow-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Centro de Avisos</Text>
-        <TouchableOpacity onPress={handleTestNotification} style={styles.backBtn}>
-          <Ionicons name="notifications-outline" size={24} color={theme.gold} />
+        <TouchableOpacity onPress={onRefresh} style={styles.backBtn}>
+          <Feather name="refresh-cw" size={22} color={theme.gold} />
         </TouchableOpacity>
       </View>
 

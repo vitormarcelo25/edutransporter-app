@@ -192,6 +192,9 @@ export default function GerenciarRotas() {
     setLoading(false);
     if (result.success && result.rotas) {
       setRotas(result.rotas);
+    } else {
+      setRotas([]);
+      Alert.alert('Erro', result.message || 'Não foi possível carregar as rotas.');
     }
   };
 
@@ -384,7 +387,8 @@ export default function GerenciarRotas() {
           text: 'Excluir',
           style: 'destructive',
           onPress: async () => {
-            await deleteRota(rotaId);
+            const res = await deleteRota(rotaId);
+            if (!res.success) Alert.alert('Erro', res.message);
             loadRotas();
           },
         },

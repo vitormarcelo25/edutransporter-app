@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator
 } from 'react-native';
+import { Alert } from '@/components/Alert';
 import { Feather, FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +19,7 @@ export default function HomeScreen() {
   const [rota, setRota] = useState<Rota | null>(null);
   const [loadingRota, setLoadingRota] = useState(true);
   const [loadingConfirmacao, setLoadingConfirmacao] = useState(false);
+  const [avisoDia, setAvisoDia] = useState<string | null>(null);
 
   const handleConfirmarPresenca = async () => {
     setLoadingConfirmacao(true);
@@ -30,11 +32,11 @@ export default function HomeScreen() {
         if (result.ordem) setOrdemChegada(result.ordem);
         await loadRotaData();
       } else {
-        alert(result.message || 'Erro ao confirmar presença');
+        Alert.alert('Atenção', result.message || 'Erro ao confirmar presença');
       }
     } catch (error) {
       console.log('Erro ao confirmar:', error);
-      alert('Erro de conexão ao confirmar presença');
+      Alert.alert('Atenção', 'Erro de conexão ao confirmar presença');
     } finally {
       setLoadingConfirmacao(false);
     }
@@ -51,11 +53,11 @@ export default function HomeScreen() {
         setOrdemChegada(null);
         await loadRotaData();
       } else {
-        alert(result.message || 'Erro ao cancelar presença');
+        Alert.alert('Atenção', result.message || 'Erro ao cancelar presença');
       }
     } catch (error) {
       console.log('Erro ao cancelar:', error);
-      alert('Erro de conexão ao cancelar presença');
+      Alert.alert('Atenção', 'Erro de conexão ao cancelar presença');
     } finally {
       setLoadingConfirmacao(false);
     }
@@ -80,9 +82,11 @@ export default function HomeScreen() {
     setLoadingRota(true);
     try {
       const response = await getRotaDoDia(userRole === 'aluno' ? userData?.id : undefined);
+      setAvisoDia(response.aviso || null);
       if (response.success && response.rota) {
         setRota(response.rota);
-        const meuAluno = response.rota.alunos.find((a: any) => a.id === userData?.id);
+        const meuCpf = String(userData?.id || '').replace(/\D/g, '');
+        const meuAluno = response.rota.alunos.find((a: any) => a.id === meuCpf || a.id === userData?.id);
         if (meuAluno) {
           setConfirmouPresenca(Boolean(meuAluno.confirmouPresenca));
           setAssentoAutomatico(meuAluno.assentoAutomatico ? Number(meuAluno.assentoAutomatico) : null);
@@ -151,7 +155,8 @@ export default function HomeScreen() {
     return mockRotaInfo.tipo;
   };
 
-  const progressLotacao = (mockRotaInfo.lotacao / mockRotaInfo.total) * 100;
+  // Lotação real: alunos que confirmaram presença hoje
+  const progressLotacao = ((rota?.alunos.filter((a: any) => a.presente).length || 0) / mockRotaInfo.total) * 100;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -200,10 +205,10 @@ export default function HomeScreen() {
 
               {/* Título da Rota e Destino */}
               <Text style={[styles.heroTitle, { color: theme.text }]}>
-                {rota?.nome || rota?.escola || mockRotaInfo.escola}
+                {rota?.nome || rota?.escola || 'Sem rota definida'}
               </Text>
               <Text style={[styles.heroSubtitle, { color: theme.subtext }]} numberOfLines={1}>
-                Destino: {rota?.escola || mockRotaInfo.escola}
+                Destino: {rota?.escola || '—'}
               </Text>
 
               {/* Info Grid - Sistema de Confirmação */}
@@ -238,7 +243,13 @@ export default function HomeScreen() {
               {/* Botão de Confirmação */}
               {userRole === 'aluno' && (
                 <View style={styles.confirmacaoContainer}>
-                  {confirmouPresenca ? (
+                  {!!avisoDia && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(239,68,68,0.12)', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                      <Feather name="info" size={16} color="#EF4444" />
+                      <Text style={{ color: theme.text, flex: 1, fontSize: 13 }}>{avisoDia}</Text>
+                    </View>
+                  )}
+                  {avisoDia ? null : confirmouPresenca ? (
                     <View style={styles.confirmadoWrapper}>
                       <LinearGradient
                         colors={['#48BB78', '#38A169']}

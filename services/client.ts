@@ -132,15 +132,18 @@ async function request<T = any>(endpoint: string, options: RequestOptions = {}):
     ...(headers as Record<string, string>),
   };
 
-  // Se a requisição for para o Supabase REST, injeta a apikey e o token
-  if (url.includes('supabase.co')) {
-    reqHeaders['apikey'] = SUPABASE_ANON_KEY;
-    if (!reqHeaders['Authorization']) {
-      reqHeaders['Authorization'] = `Bearer ${SUPABASE_ANON_KEY}`;
-    }
-  }
+  const isSupabase = url.includes('supabase.co');
 
-  if (token) {
+  // Supabase REST: sempre envia a apikey. O token de sessão do app não é um JWT
+  // do Supabase, então NÃO pode ir no Authorization (o Supabase recusaria a
+  // requisição com "Expected 3 parts in JWT" e nada seria salvo no servidor).
+  if (isSupabase) {
+    reqHeaders['apikey'] = SUPABASE_ANON_KEY;
+    const pareceJwt = !!token && token.split('.').length === 3;
+    if (pareceJwt) {
+      reqHeaders['Authorization'] = `Bearer ${token}`;
+    }
+  } else if (token) {
     reqHeaders['Authorization'] = `Bearer ${token}`;
   }
 

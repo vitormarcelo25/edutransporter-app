@@ -11,7 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useApp } from '../_layout';
 import { getRotasAgenda, RotaAgenda, AgendaResponse } from '@/services/api';
 
@@ -25,9 +25,12 @@ export default function Calendario() {
   const [error, setError] = useState('');
   const [selectedDate, setSelectedDate] = useState(0);
 
-  useEffect(() => {
-    loadAgenda();
-  }, []);
+  // Recarrega sempre que a aba Agenda é aberta (pega feriados e rotas novos do admin)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadAgenda();
+    }, [])
+  );
 
   const loadAgenda = async () => {
     setLoading(true);
@@ -50,6 +53,8 @@ export default function Calendario() {
       dias.push({
         diaSemana: DAYS_OF_WEEK[data.getDay()],
         numero: data.getDate(),
+        iso: `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`,
+        dataCompleta: data,
         data: i,
         hoje: i === 0,
       });
@@ -58,11 +63,11 @@ export default function Calendario() {
   };
 
   const getRotasDoDia = (index: number) => {
-    return rotas.filter(rota => {
-      const parts = rota.data.split(' - ');
-      return parts[0].includes(getDiasSemana()[index].numero.toString().padStart(2, '0'));
-    });
+    const iso = getDiasSemana()[index].iso;
+    return rotas.filter(rota => rota.dataIso === iso);
   };
+
+  const temFeriado = (iso: string) => rotas.some(r => r.feriado && r.dataIso === iso);
 
   const dias = getDiasSemana();
   const rotasDoDia = getRotasDoDia(selectedDate);
@@ -102,7 +107,9 @@ export default function Calendario() {
           <Feather name="arrow-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Agenda de Rotas</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={loadAgenda}>
+          <Feather name="refresh-cw" size={20} color={theme.gold} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -134,7 +141,10 @@ export default function Calendario() {
                 ]}>
                   {dia.numero}
                 </Text>
-                {dia.hoje && (
+                {temFeriado(dia.iso) && (
+                  <View style={[styles.todayDot, { backgroundColor: '#EF4444' }]} />
+                )}
+                {dia.hoje && !temFeriado(dia.iso) && (
                   <View style={[
                     styles.todayDot,
                     { backgroundColor: selectedDate === index ? '#1A253A' : theme.gold }
@@ -147,8 +157,12 @@ export default function Calendario() {
 
         {/* Data Selecionada */}
         <Text style={[styles.selectedDateText, { color: theme.text }]}>
-          {dias[selectedDate]?.numero} de {new Date().toLocaleDateString('pt-BR', { month: 'long' })}
+          {dias[selectedDate]?.numero} de {dias[selectedDate]?.dataCompleta.toLocaleDateString('pt-BR', { month: 'long' })}
         </Text>
+
+        {!!error && (
+          <Text style={[styles.emptyText, { color: '#EF4444', marginHorizontal: 20, marginBottom: 10 }]}>{error}</Text>
+        )}
 
         {/* Lista de Rotas */}
         <View style={styles.rotasContainer}>
@@ -156,12 +170,35 @@ export default function Calendario() {
             <View style={styles.emptyContainer}>
               <Feather name="calendar" size={48} color={theme.subtext} />
               <Text style={[styles.emptyText, { color: theme.subtext }]}>
-                Nenhuma rota agendada
+                Nenhuma viagem neste dia
               </Text>
             </View>
           ) : (
-            rotasDoDia.map((rota) => (
+            rotasDoDia.map((rota) => rota.feriado ? (
+              <View
+                key={rota.id}
+                style={[styles.rotaCard, { backgroundColor: theme.card, borderColor: '#EF4444', borderLeftWidth: 6 }]}
+              >
+                <View style={styles.rotaHeader}>
+                  <View style={[styles.rotaIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
+                    <Feather name="calendar" size={20} color="#EF4444" />
+                  </View>
+                  <View style={styles.rotaInfo}>
+                    <Text style={[styles.rotaNome, { color: theme.text }]}>{rota.nome}</Text>
+                    <Text style={[styles.rotaEscola, { color: theme.subtext }]}>{rota.descricao}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: '#EF4444' }]}>
+                    <Text style={styles.statusText}>Feriado</Text>
+                  </View>
+                </View>
+                <View style={[styles.divider, { backgroundColor: theme.border }]} />
+                <Text style={[styles.detailText, { color: theme.subtext, marginLeft: 0 }]}>
+                  Evento cadastrado pela coordenação: não há transporte neste dia.
+                </Text>
+              </View>
+            ) : (
               <TouchableOpacity 
+
                 key={rota.id}
                 style={[styles.rotaCard, { backgroundColor: theme.card, borderColor: theme.border }]}
               >

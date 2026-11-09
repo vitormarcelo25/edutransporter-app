@@ -1,11 +1,13 @@
 // Tela de Dados Pessoais - editar perfil do usuário
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, TextInput, ActivityIndicator } from 'react-native';
+import { Alert } from '@/components/Alert';
+import { ExpandableSelect } from '@/components/ui/ExpandableSelect';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from './_layout';
-import { updatePerfil, PerfilUpdateResponse } from '@/services/api';
+import { updatePerfil, getPerfil, getCidades, getInstituicoes, formatarTelefone, PerfilUpdateResponse } from '@/services/api';
 
 export default function DadosPessoais() {
   const router = useRouter();
@@ -19,44 +21,74 @@ export default function DadosPessoais() {
     escola: '',
   });
 
+  const [carregando, setCarregando] = useState(true);
+  const [cidades, setCidades] = useState<string[]>([]);
+  const [escolas, setEscolas] = useState<string[]>([]);
+
+  // Carrega os dados atuais do servidor (iguais em todos os aparelhos)
   useEffect(() => {
-    setFormData({
-      nome: userData?.nome || '',
-      email: userData?.email || '',
-      telefone: '',
-      cidade: '',
-      escola: '',
-    });
-  }, [userData]);
+    let ativo = true;
+    (async () => {
+      setCarregando(true);
+      const [perfil, listaCidades, listaEscolas] = await Promise.all([
+        getPerfil(),
+        getCidades(),
+        getInstituicoes(),
+      ]);
+      if (!ativo) return;
+      setCidades(listaCidades.map((c) => c.nome));
+      setEscolas(listaEscolas.map((e) => e.nome));
+      const u = perfil.usuario;
+      setFormData({
+        nome: u?.nome || userData?.nome || '',
+        email: u?.email || userData?.email || '',
+        telefone: formatarTelefone(u?.telefone),
+        cidade: u?.cidade || '',
+        escola: u?.escola || '',
+      });
+      setCarregando(false);
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, [userData?.id]);
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const handleSalvar = async () => {
-    if (!formData.nome || !formData.email) {
-      Alert.alert('Erro', 'Preencha os campos obrigatórios');
+    if (!formData.nome.trim() || !formData.email.trim()) {
+      Alert.alert('Campos obrigatórios', 'Preencha o nome completo e o e-mail.');
+      return;
+    }
+    const digitos = formData.telefone.replace(/\D/g, '');
+    if (digitos && digitos.length < 10) {
+      Alert.alert('Telefone incompleto', 'Digite o telefone com DDD no formato (00) 00000-0000.');
       return;
     }
 
     setSalvando(true);
     const result: PerfilUpdateResponse = await updatePerfil(formData);
+    setSalvando(false);
 
     if (result.success) {
       if (authToken && userData) {
         await setAuth(authToken, {
           ...userData,
-          nome: formData.nome,
-          email: formData.email,
+          nome: formData.nome.trim(),
+          email: formData.email.trim(),
+          cidade: formData.cidade,
+          escola: formData.escola,
+          telefone: formData.telefone,
         }, userRole);
       }
-      Alert.alert('Sucesso', 'Dados atualizados com sucesso!');
-      router.back();
+      Alert.alert('Dados salvos com sucesso!', result.message || 'Suas informações foram atualizadas.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
     } else {
-      Alert.alert('Erro', result.message || 'Erro ao salvar');
+      Alert.alert('Erro ao salvar', result.message || 'Não foi possível salvar suas alterações.');
     }
-
-    setSalvando(false);
   };
 
   return (
@@ -71,6 +103,12 @@ export default function DadosPessoais() {
         <View style={{ width: 40 }} />
       </View>
 
+      {carregando ? (
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color={theme.gold} />
+          <Text style={[styles.loadingText, { color: theme.subtext }]}>Carregando seus dados...</Text>
+        </View>
+      ) : (
       <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* Campos do formulário */}
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -105,34 +143,32 @@ export default function DadosPessoais() {
               <TextInput
                 style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
                 value={formData.telefone}
-                onChangeText={(v) => handleChange('telefone', v)}
+                onChangeText={(v) => handleChange('telefone', formatarTelefone(v))}
                 placeholder="(00) 00000-0000"
                 placeholderTextColor={theme.subtext}
                 keyboardType="phone-pad"
-                maxLength={11}
+                maxLength={15}
               />
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: theme.subtext }]}>Cidade</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+              <ExpandableSelect
                 value={formData.cidade}
-                onChangeText={(v) => handleChange('cidade', v)}
-                placeholder="Sua cidade"
-                placeholderTextColor={theme.subtext}
+                onSelect={(v) => handleChange('cidade', v)}
+                options={cidades}
+                placeholder="Selecione sua cidade"
               />
             </View>
 
             {userRole === 'aluno' && (
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: theme.subtext }]}>Escola</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+                <ExpandableSelect
                   value={formData.escola}
-                  onChangeText={(v) => handleChange('escola', v)}
-                  placeholder="Nome da escola"
-                  placeholderTextColor={theme.subtext}
+                  onSelect={(v) => handleChange('escola', v)}
+                  options={escolas}
+                  placeholder="Selecione sua instituição"
                 />
               </View>
             )}
@@ -153,6 +189,7 @@ export default function DadosPessoais() {
 
           <View style={{ height: 40 }} />
         </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

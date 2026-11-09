@@ -4,7 +4,15 @@
  * Fallback resiliente com Mock quando o servidor local não estiver ativo
  */
 
-import { apiClient, getApiErrorMessage, API_BASE_URL, storageHelper, setOnUnauthorized } from './client';
+import {
+  apiClient,
+  getApiErrorMessage,
+  API_BASE_URL,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  storageHelper,
+  setOnUnauthorized,
+} from './client';
 
 export { API_BASE_URL, storageHelper, setOnUnauthorized };
 
@@ -174,9 +182,15 @@ export interface Rota {
   alunos: RotaAluno[];
   status: 'agendada' | 'em_andamento' | 'encerrada';
   paradas: Parada[];
+  /** Id da rota fixa (tabela rota) quando a viagem do dia vem dela. */
+  rotaId?: string;
+  diasSemana?: string;
+  motoristaCpf?: string;
 }
 
 export interface RotaResponse {
+  /** Explica por que não há viagem hoje (feriado, dia sem rota...). */
+  aviso?: string;
   success: boolean;
   rota?: Rota;
   message?: string;
@@ -260,6 +274,11 @@ export interface PerfilUpdateResponse {
 export interface RotaAgenda {
   id: string;
   data: string;
+  /** Data no formato yyyy-MM-dd (usada para filtrar pelo dia na agenda). */
+  dataIso?: string;
+  /** true quando o item é um feriado/evento cadastrado pelo admin. */
+  feriado?: boolean;
+  descricao?: string;
   nome: string;
   escola: string;
   horario: string;
@@ -337,6 +356,8 @@ export interface ConvitesResponse {
 /** Backend devolve datas em ISO; o app usa texto pt-BR. */
 const formatarDataApi = (valor?: string | null): string => {
   if (!valor) return '';
+  const soData = String(valor).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
   const data = new Date(valor);
   if (Number.isNaN(data.getTime())) return String(valor);
   return data.toLocaleDateString('pt-BR');
@@ -513,6 +534,88 @@ let MOCK_AVISOS: Aviso[] = [
 // 1. AUTENTICAÇÃO E CADASTRO
 // ==========================================
 
+interface LoginRpcResult {
+  resultado: 'ok' | 'pendente' | 'recusado' | 'tipo_incorreto' | 'invalido';
+  usuario?: { tipo: 'aluno' | 'motorista'; cpf: string; nome_completo?: string; email?: string; status?: string };
+  motivo_recusa?: string | null;
+  tipo_real?: 'aluno' | 'motorista';
+}
+
+/**
+ * Chama a função `login_usuario` no Supabase, que confere a senha (bcrypt)
+ * no servidor e devolve só campos seguros.
+ * Retorna null quando o servidor não pôde ser consultado (rede/função ausente).
+ */
+const loginViaSupabase = async (
+  cpfLimpo: string,
+  senha: string,
+  tipo: 'aluno' | 'motorista'
+): Promise<LoginRpcResult | null> => {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 30000) : null;
+  try {
+    // fetch direto: não envia o token local (não é um JWT do Supabase).
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/login_usuario`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ p_cpf: cpfLimpo, p_senha: senha, p_tipo: tipo }),
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!resp.ok) {
+      console.warn('Login no Supabase indisponível:', resp.status);
+      return null;
+    }
+    const data = await resp.json();
+    return data && typeof data.resultado === 'string' ? (data as LoginRpcResult) : null;
+  } catch (err: any) {
+    console.warn('Erro ao consultar login no Supabase:', err?.message || err);
+    return null;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
+/** Mensagem de pendente/recusado para solicitações salvas neste aparelho. */
+const statusSolicitacaoLocal = async (cpfLimpo: string): Promise<LoginResponse | null> => {
+  let sol: SolicitacaoAluno | undefined;
+  try {
+    const rawSol = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
+    if (rawSol) {
+      const sols: SolicitacaoAluno[] = JSON.parse(rawSol);
+      sol = sols.find((s) => s.cpf === cpfLimpo);
+    }
+  } catch {}
+  if (!sol) sol = MOCK_SOLICITACOES.find((s) => s.cpf === cpfLimpo);
+  if (!sol) return null;
+
+  try {
+    const rawAprov = await storageHelper.getItem(APROVACOES_STORAGE_KEY);
+    const aprovados: string[] = rawAprov ? JSON.parse(rawAprov) : [];
+    if (aprovados.includes(cpfLimpo)) return null;
+  } catch {}
+
+  if (sol.status === 'pendente') {
+    return {
+      success: false,
+      status: 'pendente',
+      message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
+    };
+  }
+  if (sol.status === 'recusada') {
+    return {
+      success: false,
+      status: 'recusado',
+      message: `Sua solicitação foi recusada: ${sol.motivoRecusa || 'Documentação não conferida.'}`,
+    };
+  }
+  return null;
+};
+
 export const login = async (
   email?: string,
   pass?: string,
@@ -603,33 +706,17 @@ export const login = async (
     }
 
     // ==========================================
-    // 1. TENTATIVA NO SUPABASE / BACKEND OFICIAL
+    // 1. VERIFICAÇÃO NO SERVIDOR (Supabase RPC login_usuario)
+    // A senha é conferida no banco (bcrypt); o app nunca lê a coluna `senha`.
     // ==========================================
-    if (roleFinal === 'aluno') {
-      try {
-        const respAluno = await apiClient.get<any[]>(`/aluno?cpf=eq.${cpfLimpo}&select=*`);
-        if (Array.isArray(respAluno.data) && respAluno.data.length > 0) {
-          const alunoDb = respAluno.data[0];
+    const rpc = await loginViaSupabase(cpfLimpo, pass, roleFinal);
+    if (rpc) {
+      if (rpc.resultado === 'ok' && rpc.usuario) {
+        const u = rpc.usuario;
+        const isMotorista = u.tipo === 'motorista';
 
-          // Verifica status de aprovação
-          const statusDb = String(alunoDb.status || '').toUpperCase();
-          if (statusDb === 'PENDENTE') {
-            return {
-              success: false,
-              status: 'pendente',
-              message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
-            };
-          }
-          if (statusDb === 'RECUSADO') {
-            return {
-              success: false,
-              status: 'recusado',
-              message: `Sua solicitação foi recusada: ${alunoDb.motivo_recusa || 'Documentação não conferida.'}`,
-            };
-          }
-
-          // Descobre rota atribuída
-          let rotaAtribuida = 'Linha 01 - Nassau Noturno';
+        let rotaAtribuida = 'Linha 01 - Nassau Noturno';
+        if (!isMotorista) {
           try {
             const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
             if (rawMap) {
@@ -637,67 +724,68 @@ export const login = async (
               if (mapRotas[cpfLimpo]) rotaAtribuida = mapRotas[cpfLimpo];
             }
           } catch {}
-
-          const userRetorno = {
-            id: String(alunoDb.cpf || cpfLimpo),
-            nome: alunoDb.nome_completo || 'Aluno',
-            email: valor.includes('@') ? valor : `${cpfLimpo}@aluno.edutransporte`,
-            role: 'aluno' as const,
-            rotaNome: rotaAtribuida,
-          };
-
-          await storageHelper.setItem('user_data_v2', JSON.stringify(userRetorno));
-
-          return {
-            success: true,
-            token: `jwt_supabase_${cpfLimpo}_${Date.now()}`,
-            user: userRetorno,
-            status: 'aprovado',
-            message: 'Login realizado com sucesso.',
-          };
         }
-      } catch (errSupabase) {
-        console.warn('Erro ao consultar aluno no Supabase:', errSupabase);
-      }
-    } else {
-      // Motorista no Supabase
-      try {
-        const respMot = await apiClient.get<any[]>(`/motorista?cpf=eq.${cpfLimpo}&select=*`);
-        if (Array.isArray(respMot.data) && respMot.data.length > 0) {
-          const motDb = respMot.data[0];
-          
-          if (motDb.senha && pass.trim() !== String(motDb.senha).trim()) {
-            return {
-              success: false,
-              message: 'Senha incorreta para este motorista.',
-            };
-          }
 
-          const userRetorno = {
-            id: String(motDb.cpf || cpfLimpo),
-            nome: motDb.nome_completo || 'Motorista',
-            email: motDb.email || `${cpfLimpo}@motorista.edutransporte`,
-            role: 'motorista' as const,
-            rotaNome: 'Linha 01 - Nassau Noturno',
-          };
+        const userRetorno = {
+          id: String(u.cpf || cpfLimpo),
+          nome: u.nome_completo || (isMotorista ? 'Motorista' : 'Aluno'),
+          email: isMotorista
+            ? u.email || `${cpfLimpo}@motorista.edutransporte`
+            : valor.includes('@') ? valor : `${cpfLimpo}@aluno.edutransporte`,
+          role: (isMotorista ? 'motorista' : 'aluno') as 'motorista' | 'aluno',
+          rotaNome: rotaAtribuida,
+        };
 
+        try {
           await storageHelper.setItem('user_data_v2', JSON.stringify(userRetorno));
+        } catch {}
 
-          return {
-            success: true,
-            token: `jwt_supabase_mot_${cpfLimpo}_${Date.now()}`,
-            user: userRetorno,
-            status: 'aprovado',
-            message: 'Login realizado com sucesso.',
-          };
-        }
-      } catch (errMot) {
-        console.warn('Erro ao consultar motorista no Supabase:', errMot);
+        return {
+          success: true,
+          token: `${isMotorista ? 'jwt_supabase_mot_' : 'jwt_supabase_'}${cpfLimpo}_${Date.now()}`,
+          user: userRetorno,
+          status: 'aprovado',
+          message: 'Login realizado com sucesso.',
+        };
       }
+
+      if (rpc.resultado === 'pendente') {
+        return {
+          success: false,
+          status: 'pendente',
+          message: 'Sua solicitação de cadastro ainda está em análise pela Coordenação de Transportes. Aguarde a validação.',
+        };
+      }
+
+      if (rpc.resultado === 'recusado') {
+        return {
+          success: false,
+          status: 'recusado',
+          message: `Sua solicitação foi recusada: ${rpc.motivo_recusa || 'Documentação não conferida.'}`,
+        };
+      }
+
+      if (rpc.resultado === 'tipo_incorreto') {
+        return {
+          success: false,
+          message: rpc.tipo_real === 'motorista'
+            ? 'Este CPF pertence a um motorista. Selecione a opção Motorista.'
+            : 'Este CPF pertence a um aluno. Selecione a opção Aluno.',
+        };
+      }
+
+      // 'invalido': CPF inexistente ou senha errada. O servidor respondeu,
+      // então nunca liberamos o acesso a partir dos dados locais; só
+      // mostramos o status de uma solicitação feita neste aparelho.
+      if (roleFinal === 'aluno') {
+        const statusLocal = await statusSolicitacaoLocal(cpfLimpo);
+        if (statusLocal) return statusLocal;
+      }
+      return { success: false, message: 'CPF ou senha incorretos.' };
     }
 
     // ==========================================
-    // 2. VERIFICAÇÃO LOCAL DE SOLICITAÇÕES / APROVAÇÕES
+    // 2. MODO OFFLINE: servidor inacessível, usa os dados de demonstração locais
     // ==========================================
     if (roleFinal === 'aluno') {
       let sol: SolicitacaoAluno | undefined;
@@ -909,50 +997,25 @@ export const register = async (data: {
   }
 
   try {
-    // Contrato real do backend: POST /api/usuarios/alunos
-    await apiClient.post('/api/usuarios/alunos', {
+    // A senha é criptografada pelo próprio banco (gatilho hash_senha_trigger)
+    await apiClient.post('/aluno', {
       cpf: cpfLimpo,
-      nomeCompleto: data.nome.trim(),
-      numeroCelular: (data.telefone || '').replace(/\D/g, ''),
+      nome_completo: data.nome.trim(),
+      numero_celular: (data.telefone || '').replace(/\D/g, ''),
       senha: data.password,
-      cidadeId: data.cidadeId,
-      faculdadeId: data.faculdadeId,
+      cidade_id: data.cidadeId,
+      faculdade_id: data.faculdadeId,
+      status: 'PENDENTE',
     });
   } catch (err: any) {
-    console.warn('Backend indisponível no cadastro de aluno, salvando localmente:', err?.message || err);
-  }
-
-  // Persiste a solicitação localmente para aprovação do Administrador no painel
-  const novaSolicitacao: SolicitacaoAluno = {
-    id: cpfLimpo,
-    nome: data.nome.trim(),
-    cpf: cpfLimpo,
-    email: data.email || `${cpfLimpo}@aluno.edutransporte`,
-    telefone: data.telefone || '',
-    cidade: data.cidade || '',
-    escola: data.escola || '',
-    matriculaEscolar: data.matriculaEscolar || 'Pendente',
-    pontoEmbarque: data.pontoEmbarque || 'Ponto Central',
-    turno: data.turno || 'Noturno',
-    dataSolicitacao: new Date().toLocaleDateString('pt-BR'),
-    status: 'pendente',
-  };
-
-  try {
-    const raw = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
-    const lista: SolicitacaoAluno[] = raw ? JSON.parse(raw) : [];
-    const index = lista.findIndex((s) => s.cpf === cpfLimpo);
-    if (index >= 0) {
-      lista[index] = novaSolicitacao;
-    } else {
-      lista.unshift(novaSolicitacao);
+    if (err?.status === 409) {
+      return { success: false, message: 'Este CPF já está cadastrado. Faça login ou aguarde a aprovação.' };
     }
-    await storageHelper.setItem(SOLICITACOES_STORAGE_KEY, JSON.stringify(lista));
-  } catch {}
-
-  // Adiciona ao mock em memória
-  MOCK_SOLICITACOES = MOCK_SOLICITACOES.filter((s) => s.cpf !== cpfLimpo);
-  MOCK_SOLICITACOES.unshift(novaSolicitacao);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível enviar sua solicitação. Verifique a conexão e tente novamente.'),
+    };
+  }
 
   return {
     success: true,
@@ -966,13 +1029,199 @@ export const register = async (data: {
 // 2. TELAS DE ALUNO: ROTAS, PRESENÇA E AVISOS
 // ==========================================
 
-/** Busca a viagem do dia (ou a primeira cadastrada) no backend real. */
-const obterViagemAtual = async (): Promise<any | null> => {
-  const response = await apiClient.get<any>('/api/viagens');
-  const lista = Array.isArray(response.data) ? response.data : [];
-  if (!lista.length) return null;
-  const hoje = new Date().toISOString().slice(0, 10);
-  return lista.find((v: any) => String(v.data || '').slice(0, 10) === hoje) || lista[0];
+// ==========================================
+// HELPERS SUPABASE (fonte única de dados para todos os aparelhos)
+// ==========================================
+
+const PREFER_RETORNO = { headers: { Prefer: 'return=representation' } };
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** Data de hoje no fuso do aparelho, no formato yyyy-MM-dd. */
+const hojeLocalIso = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+/** Início do dia de hoje (00:00 local) em ISO, para filtrar confirmações do dia. */
+const inicioDoDiaIso = (): string => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+};
+
+const textoNorm = (v?: string | null) => String(v || '').trim().toLowerCase();
+
+/** Converte uma linha da tabela "viagem" para o formato usado nas telas. */
+const normalizarViagemDb = (v: any) => ({
+  ...v,
+  id: v?.id,
+  data: v?.data,
+  horario: v?.horario,
+  tipo: v?.tipo,
+  status: v?.status,
+  nomeRota: v?.nome_rota ?? v?.nomeRota ?? '',
+  motoristaCpf: v?.motorista_cpf ?? v?.motoristaCpf ?? '',
+  veiculoPlaca: v?.veiculo_placa ?? v?.veiculoPlaca ?? '',
+});
+
+/** Lista as viagens cadastradas no Supabase (mais recentes primeiro). */
+const listarViagens = async (): Promise<any[]> => {
+  const response = await apiClient.get<any[]>('/viagem?select=*&order=data.desc,horario.desc,id.desc&limit=200');
+  return Array.isArray(response.data) ? response.data.map(normalizarViagemDb) : [];
+};
+
+/** Mesmo formato de retorno de apiClient.get, para reaproveitar o código existente. */
+const getViagensResp = async (): Promise<{ data: any[] }> => ({ data: await listarViagens() });
+
+/** Nome da rota do usuário logado (salvo na sessão). */
+const rotaNomeDaSessao = async (): Promise<string | undefined> => {
+  try {
+    const raw = await storageHelper.getItem('user_data_v2');
+    if (raw) return JSON.parse(raw)?.rotaNome || undefined;
+  } catch {}
+  return undefined;
+};
+
+const digitos = (v?: string | null) => String(v || '').replace(/\D/g, '');
+
+/** Converte uma linha da tabela "rota" (com rota_parada embutida) para o formato das telas. */
+const rotaDbParaRota = (r: any, alunos: RotaAluno[] = []): Rota => ({
+  id: String(r?.id ?? ''),
+  rotaId: String(r?.id ?? ''),
+  nome: r?.nome || 'Rota',
+  escola: r?.escola || '',
+  horario: formatarHoraApi(r?.horario) || '18:00',
+  tipo: normalizarTipoViagem(r?.tipo),
+  status: 'agendada',
+  diasSemana: r?.dias_semana || '1,2,3,4,5',
+  motoristaCpf: r?.motorista_cpf || undefined,
+  paradas: (Array.isArray(r?.rota_parada) ? [...r.rota_parada] : [])
+    .sort((a: any, b: any) => Number(a.ordem) - Number(b.ordem))
+    .map((p: any) => ({
+      id: String(p.id ?? p.ordem),
+      nome: p.nome || '',
+      endereco: p.endereco || p.nome || '',
+      latitude: Number(p.latitude) || 0,
+      longitude: Number(p.longitude) || 0,
+    })),
+  alunos,
+});
+
+/** Todas as rotas fixas ativas, com as paradas. */
+const lerRotasDb = async (): Promise<any[]> => {
+  const resp = await apiClient.get<any[]>('/rota?select=*,rota_parada(*)&ativo=eq.true&order=horario.asc,nome.asc');
+  return Array.isArray(resp.data) ? resp.data : [];
+};
+
+/**
+ * Rotas do usuário logado: a rota do aluno (aluno_rota) ou as rotas do motorista.
+ * Retorna null quando o usuário não é aluno/motorista (ex.: admin).
+ */
+const rotasDoUsuario = async (): Promise<any[] | null> => {
+  const sessao = await usuarioDaSessao();
+  const cpf = digitos(sessao?.id);
+  if (!sessao || cpf.length !== 11) return null;
+  if (sessao.role === 'motorista') {
+    const resp = await apiClient.get<any[]>(
+      `/rota?motorista_cpf=eq.${cpf}&ativo=eq.true&select=*,rota_parada(*)&order=horario.asc`
+    );
+    return Array.isArray(resp.data) ? resp.data : [];
+  }
+  if (sessao.role === 'aluno') {
+    const resp = await apiClient.get<any[]>(`/aluno_rota?aluno_cpf=eq.${cpf}&select=rota(*,rota_parada(*))`);
+    const linha = Array.isArray(resp.data) ? resp.data[0] : null;
+    return linha?.rota && linha.rota.ativo !== false ? [linha.rota] : [];
+  }
+  return null;
+};
+
+type ResultadoDia = {
+  viagem: any | null;
+  rota: any | null;
+  motivo?: 'feriado' | 'sem_viagem_hoje' | 'sem_rota';
+  feriado?: string;
+};
+
+/** Mensagem amigável quando não há viagem hoje. */
+const explicarSemViagem = (r: ResultadoDia): string => {
+  if (r.motivo === 'feriado') return `Hoje é feriado (${r.feriado || 'sem transporte'}). Não há viagem.`;
+  if (r.motivo === 'sem_viagem_hoje') return 'Sua rota não circula hoje. Confira os dias na Agenda.';
+  return 'Você ainda não está vinculado a uma rota. Fale com a coordenação.';
+};
+
+/**
+ * Descobre a viagem de hoje do usuário. Com rota fixa, o banco cria a viagem
+ * do dia (função viagem_do_dia), respeitando feriados e dias da semana.
+ */
+const resultadoViagemDoDia = async (): Promise<ResultadoDia> => {
+  let rotas: any[] | null = null;
+  try {
+    rotas = await rotasDoUsuario();
+  } catch (err: any) {
+    // Tabelas novas ainda não criadas no banco: usa o modo antigo abaixo
+    console.warn('Rotas fixas indisponíveis:', err?.message || err);
+  }
+
+  if (rotas && rotas.length > 0) {
+    let ultimo: ResultadoDia = { viagem: null, rota: rotas[0] };
+    for (const rota of rotas) {
+      const resp = await apiClient.post<any>('/rpc/viagem_do_dia', { p_rota_id: rota.id });
+      const d = resp.data || {};
+      if (d.resultado === 'ok' && d.viagem) {
+        return { viagem: normalizarViagemDb(d.viagem), rota };
+      }
+      ultimo = { viagem: null, rota, motivo: d.resultado, feriado: d.feriado };
+    }
+    return ultimo;
+  }
+
+  const sessao = await usuarioDaSessao();
+  if (rotas && rotas.length === 0 && sessao?.role === 'aluno') {
+    return { viagem: null, rota: null, motivo: 'sem_rota' };
+  }
+
+  // Modo antigo (admin ou banco sem rotas fixas): viagem de hoje ou a mais recente
+  const lista = await listarViagens();
+  if (!lista.length) return { viagem: null, rota: null, motivo: 'sem_viagem_hoje' };
+  const hoje = hojeLocalIso();
+  const nome = textoNorm(await rotaNomeDaSessao());
+  const daRota = nome ? lista.filter((v) => textoNorm(v.nomeRota) === nome) : [];
+  const ehHoje = (v: any) => String(v.data || '').slice(0, 10) === hoje;
+  return { viagem: daRota.find(ehHoje) || lista.find(ehHoje) || daRota[0] || lista[0], rota: null };
+};
+
+const obterViagemAtual = async (): Promise<any | null> => (await resultadoViagemDoDia()).viagem;
+
+/**
+ * Presenças confirmadas HOJE numa viagem, em ordem de confirmação.
+ * A posição na lista define o assento (1º a confirmar = assento 1).
+ */
+const listarConfirmacoesDoDia = async (viagemId: any): Promise<any[]> => {
+  const response = await apiClient.get<any[]>(
+    `/presenca?viagem_id=eq.${encodeURIComponent(String(viagemId))}&presente=eq.true` +
+      `&confirmado_em=gte.${encodeURIComponent(inicioDoDiaIso())}&select=*&order=confirmado_em.asc`
+  );
+  return Array.isArray(response.data) ? response.data : [];
+};
+
+/** Grava (ou atualiza) a presença de um aluno numa viagem no Supabase. */
+const salvarPresencaDb = async (viagemId: any, alunoCpf: string, presente: boolean) => {
+  const cpf = String(alunoCpf).replace(/\D/g, '');
+  const filtro = `/presenca?viagem_id=eq.${encodeURIComponent(String(viagemId))}&aluno_cpf=eq.${cpf}`;
+  const dados = { presente, confirmado_em: new Date().toISOString() };
+
+  // Atualiza se já existir registro para este aluno nesta viagem...
+  const upd = await apiClient.patch<any[]>(filtro, dados, PREFER_RETORNO);
+  if (Array.isArray(upd.data) && upd.data.length > 0) return upd.data[0];
+
+  // ...senão cria um novo.
+  const ins = await apiClient.post<any[]>(
+    '/presenca',
+    { viagem_id: Number(viagemId) || viagemId, aluno_cpf: cpf, ...dados },
+    PREFER_RETORNO
+  );
+  return Array.isArray(ins.data) ? ins.data[0] : ins.data;
 };
 
 export const PARADAS_PADRAO_CARUARU: Parada[] = [
@@ -1058,246 +1307,212 @@ export const ROTAS_PADRAO_INICIAIS: Rota[] = [
 ];
 
 export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
-  const cpfLimpo = alunoId ? String(alunoId).replace(/\D/g, '') : '';
+  const cpfLimpo = digitos(alunoId);
 
-  // 1. Carrega todas as rotas ativas (persistidas pelo Admin)
-  let adminRotas: Rota[] = [];
   try {
-    const rawAdmin = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-    if (rawAdmin) {
-      const parsed = JSON.parse(rawAdmin);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        adminRotas = parsed;
+    const dia = await resultadoViagemDoDia();
+    const viagem = dia.viagem;
+
+    // Sem viagem hoje (feriado, dia sem rota...): mostra a rota fixa e o motivo
+    if (!viagem) {
+      if (dia.rota) {
+        const rota = rotaDbParaRota(dia.rota);
+        return { success: true, rota: { ...rota, status: 'encerrada' }, aviso: explicarSemViagem(dia) };
       }
+      return { success: false, message: explicarSemViagem(dia), aviso: explicarSemViagem(dia) };
     }
-  } catch (err) {
-    console.warn('Erro ao ler rotas do admin:', err);
-  }
 
-  if (adminRotas.length === 0) {
-    adminRotas = [...ROTAS_PADRAO_INICIAIS];
-  }
+    let paradasApi: any[] = [];
+    let todasPresencas: any[] = [];
+    let confirmadasHoje: any[] = [];
 
-  // 2. Identifica a rota atribuída ao aluno
-  let rotaNomeAluno: string | undefined;
-
-  // Busca no mapeamento persistente de alunos x rotas
-  if (cpfLimpo) {
     try {
-      const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
-      if (rawMap) {
-        const mapRotas: Record<string, string> = JSON.parse(rawMap);
-        if (mapRotas[cpfLimpo]) {
-          rotaNomeAluno = mapRotas[cpfLimpo];
-        }
-      }
-    } catch {}
-  }
+      const respParadas = await apiClient.get<any[]>(
+        `/parada?viagem_id=eq.${encodeURIComponent(String(viagem.id))}&select=*&order=ordem.asc`
+      );
+      paradasApi = Array.isArray(respParadas.data) ? respParadas.data : [];
+    } catch {
+      paradasApi = [];
+    }
 
-  // Busca nos dados da sessão ativa (user_data_v2)
-  if (!rotaNomeAluno) {
     try {
-      const rawUser = await storageHelper.getItem('user_data_v2');
-      if (rawUser) {
-        const u = JSON.parse(rawUser);
-        if (u.rotaNome) {
-          rotaNomeAluno = u.rotaNome;
-        }
-      }
-    } catch {}
-  }
+      const respPresencas = await apiClient.get<any[]>(
+        `/presenca?viagem_id=eq.${encodeURIComponent(String(viagem.id))}&select=*&order=confirmado_em.asc`
+      );
+      todasPresencas = Array.isArray(respPresencas.data) ? respPresencas.data : [];
+      confirmadasHoje = await listarConfirmacoesDoDia(viagem.id);
+    } catch {
+      todasPresencas = [];
+    }
 
-  // 3. Localiza a rota nos registros
-  let rotaEncontrada: Rota | undefined;
-
-  // Prioridade A: Busca por nome exato ou contido (ex: "Pão de Açúcar")
-  if (rotaNomeAluno) {
-    const nomeNorm = rotaNomeAluno.trim().toLowerCase();
-    rotaEncontrada = adminRotas.find(
-      (r) =>
-        r.nome.trim().toLowerCase() === nomeNorm ||
-        r.nome.trim().toLowerCase().includes(nomeNorm) ||
-        nomeNorm.includes(r.nome.trim().toLowerCase())
-    );
-  }
-
-  // Prioridade B: Busca pelo CPF do aluno nos IDs vinculados da rota
-  if (!rotaEncontrada && cpfLimpo) {
-    rotaEncontrada = adminRotas.find(
-      (r) =>
-        (r as any).alunosIds?.includes(cpfLimpo) ||
-        (r as any).alunosIds?.includes(alunoId) ||
-        r.alunos?.some((a) => a.id === cpfLimpo || a.id === alunoId)
-    );
-  }
-
-  // Prioridade C: Se o aluno não tiver vínculo específico, usa a rota mais recente criada pelo Admin
-  if (!rotaEncontrada && adminRotas.length > 0) {
-    rotaEncontrada = adminRotas[adminRotas.length - 1];
-  }
-
-  // O backend é consultado primeiro (rotas criadas no painel aparecem para todos).
-  // Se o servidor estiver offline, cai para as rotas locais logo abaixo.
-  try {
-    const viagem = await obterViagemAtual();
-    if (viagem) {
-      let paradasApi: any[] = [];
-      let presencasApi: any[] = [];
-
+    // Alunos da rota (aluno_rota) + quem tem presença registrada nesta viagem
+    const cpfs: string[] = [];
+    const adicionar = (c: string) => { if (c && !cpfs.includes(c)) cpfs.push(c); };
+    if (dia.rota?.id) {
       try {
-        const respParadas = await apiClient.get<any[]>(`/api/viagens/${viagem.id}/paradas`);
-        paradasApi = Array.isArray(respParadas.data) ? respParadas.data : [];
-      } catch {
-        paradasApi = [];
-      }
+        const respVinc = await apiClient.get<any[]>(`/aluno_rota?rota_id=eq.${dia.rota.id}&select=aluno_cpf`);
+        (Array.isArray(respVinc.data) ? respVinc.data : []).forEach((v: any) => adicionar(String(v.aluno_cpf)));
+      } catch {}
+    }
+    todasPresencas.forEach((p: any) => adicionar(String(p.aluno_cpf || '')));
+    if (cpfLimpo) adicionar(cpfLimpo);
 
+    const nomes: Record<string, string> = {};
+    if (cpfs.length > 0) {
       try {
-        const respPresencas = await apiClient.get<any[]>(`/api/viagens/${viagem.id}/presencas`);
-        presencasApi = Array.isArray(respPresencas.data) ? respPresencas.data : [];
-      } catch {
-        presencasApi = [];
-      }
+        const respAlunos = await apiClient.get<any[]>(`/aluno?cpf=in.(${cpfs.join(',')})&select=cpf,nome_completo`);
+        (Array.isArray(respAlunos.data) ? respAlunos.data : []).forEach((al: any) => {
+          nomes[String(al.cpf)] = al.nome_completo || '';
+        });
+      } catch {}
+    }
 
-      const paradas: Parada[] = paradasApi.length > 0
-        ? paradasApi.map((p: any) => ({
-            id: String(p.ordem ?? p.id ?? Math.random()),
-            nome: p.nome || '',
-            endereco: p.nome || '',
-            latitude: Number(p.latitude) || 0,
-            longitude: Number(p.longitude) || 0,
-          }))
-        : PARADAS_PADRAO_CARUARU;
+    const ordemHoje = confirmadasHoje.map((p: any) => String(p.aluno_cpf));
+    const paradasFixas = dia.rota ? rotaDbParaRota(dia.rota).paradas : [];
+    const paradas: Parada[] = paradasApi.length > 0
+      ? paradasApi.map((p: any) => ({
+          id: String(p.ordem ?? p.id ?? Math.random()),
+          nome: p.nome || '',
+          endereco: p.nome || '',
+          latitude: Number(p.latitude) || 0,
+          longitude: Number(p.longitude) || 0,
+        }))
+      : paradasFixas;
 
-      const alunos: RotaAluno[] = presencasApi.map((p: any, i: number) => ({
-        id: String(p.alunoCpf ?? ''),
-        nome: p.alunoNome || '',
+    const alunos: RotaAluno[] = cpfs.map((cpf) => {
+      const posicao = ordemHoje.indexOf(cpf);
+      const confirmou = posicao >= 0;
+      return {
+        id: cpf,
+        nome: nomes[cpf] || 'Aluno',
         escola: viagem.nomeRota || '',
         parada: '',
-        presente: Boolean(p.presente),
-        confirmouPresenca: Boolean(p.presente),
-        ordemChegada: i + 1,
-      }));
+        presente: confirmou,
+        confirmouPresenca: confirmou,
+        assentoAutomatico: confirmou ? posicao + 1 : undefined,
+        ordemChegada: confirmou ? posicao + 1 : undefined,
+      } as RotaAluno;
+    });
 
-      return {
-        success: true,
-        rota: {
-          id: String(viagem.id),
-          nome: viagem.nomeRota || 'Linha 01 - Nassau Noturno',
-          escola: viagem.escola || viagem.veiculoModelo || 'Faculdade Maurício de Nassau',
-          horario: formatarHoraApi(viagem.horario) || '17:45',
-          tipo: normalizarTipoViagem(viagem.tipo),
-          status: normalizarStatusRota(viagem.status),
-          paradas,
-          alunos,
-        },
-      };
-    }
-  } catch (err: any) {
-    console.warn('Backend /api/viagens indisponível:', err?.message || err);
-  }
-
-  // Backend indisponível: usa a rota salva localmente (modo offline).
-  if (rotaEncontrada && rotaEncontrada.paradas && rotaEncontrada.paradas.length > 0) {
     return {
       success: true,
-      rota: rotaEncontrada,
+      rota: {
+        id: String(viagem.id),
+        rotaId: dia.rota?.id ? String(dia.rota.id) : undefined,
+        nome: viagem.nomeRota || dia.rota?.nome || 'Rota',
+        escola: dia.rota?.escola || viagem.escola || '',
+        horario: formatarHoraApi(viagem.horario) || '18:00',
+        tipo: normalizarTipoViagem(viagem.tipo),
+        status: normalizarStatusRota(viagem.status),
+        paradas,
+        alunos,
+      },
     };
+  } catch (err: any) {
+    console.warn('Supabase indisponível ao carregar a rota do dia:', err?.message || err);
+    return { success: false, message: 'Sem conexão com o servidor. Verifique sua internet e tente novamente.' };
   }
-
-  // Fallback seguro final
-  return {
-    success: true,
-    rota: ROTAS_PADRAO_INICIAIS[0],
-  };
 };
 
 export const confirmarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
+  const cpf = String(alunoId || '').replace(/\D/g, '');
+  if (!cpf) return { success: false, message: 'Usuário não identificado. Faça login novamente.' };
   try {
-    // Endpoint real: POST /api/viagens/{viagemId}/presencas
-    const viagem = await obterViagemAtual();
-    if (viagem) {
-      const response = await apiClient.post<any>(`/api/viagens/${viagem.id}/presencas`, {
-        alunoCpf: alunoId,
-        presente: true,
-      });
-      const data = response.data;
-      return {
-        success: true,
-        message: 'Presença confirmada!',
-        assento: data?.id || '3A',
-        ordem: data?.id || 3,
-      };
+    const dia = await resultadoViagemDoDia();
+    const viagem = dia.viagem;
+    if (!viagem) {
+      return { success: false, message: explicarSemViagem(dia) };
     }
+    await salvarPresencaDb(viagem.id, cpf, true);
+
+    // Assento = ordem de confirmação de hoje (1º a confirmar fica com o assento 1)
+    const confirmadas = await listarConfirmacoesDoDia(viagem.id);
+    const posicao = confirmadas.findIndex((p: any) => String(p.aluno_cpf) === cpf);
+    const ordem = posicao >= 0 ? posicao + 1 : confirmadas.length || 1;
+    return {
+      success: true,
+      message: 'Presença confirmada!',
+      assento: ordem,
+      ordem,
+    };
   } catch (err: any) {
-    console.warn('Backend confirmação de presença indisponível:', err?.message || err);
+    console.warn('Erro ao confirmar presença no Supabase:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível confirmar a presença. Verifique sua conexão e tente novamente.'),
+    };
   }
-  return {
-    success: true,
-    message: 'Presença confirmada com sucesso (local)!',
-    assento: 3,
-    ordem: 3,
-  };
 };
 
 export const cancelarPresenca = async (alunoId: string): Promise<ConfirmacaoResponse> => {
+  const cpf = String(alunoId || '').replace(/\D/g, '');
   try {
-    // Endpoint real: DELETE /api/viagens/{viagemId}/presencas/{alunoCpf}
     const viagem = await obterViagemAtual();
-    if (viagem) {
-      await apiClient.delete<any>(`/api/viagens/${viagem.id}/presencas/${encodeURIComponent(alunoId)}`);
-      return { success: true, message: 'Presença cancelada com sucesso.' };
-    }
+    if (!viagem) return { success: false, message: 'Nenhuma viagem encontrada.' };
+    await salvarPresencaDb(viagem.id, cpf, false);
+    return { success: true, message: 'Presença cancelada com sucesso.' };
   } catch (err: any) {
-    console.warn('Backend cancelamento de presença indisponível:', err?.message || err);
+    console.warn('Erro ao cancelar presença no Supabase:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível cancelar a presença. Tente novamente.'),
+    };
   }
-  return { success: true, message: 'Presença cancelada (local).' };
 };
 
 export const marcarPresenca = async (alunoId: string, presente: boolean): Promise<PresencaResponse> => {
   try {
-    // Endpoint real: POST /api/viagens/{viagemId}/presencas
     const viagem = await obterViagemAtual();
-    if (viagem) {
-      await apiClient.post<any>(`/api/viagens/${viagem.id}/presencas`, {
-        alunoCpf: alunoId,
-        presente,
-      });
-      return {
-        success: true,
-        message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
-      };
-    }
+    if (!viagem) return { success: false, message: 'Nenhuma viagem encontrada.' };
+    await salvarPresencaDb(viagem.id, alunoId, presente);
+    return {
+      success: true,
+      message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
+    };
   } catch (err: any) {
-    console.warn('Backend marcação de presença indisponível:', err?.message || err);
+    console.warn('Erro ao marcar presença no Supabase:', err?.message || err);
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível salvar a presença. Tente novamente.'),
+    };
   }
-  return {
-    success: true,
-    message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
-  };
 };
 
+/** Ícone padrão de cada tipo de aviso. */
+const iconeDoAviso = (tipo: Aviso['tipo']) =>
+  tipo === 'urgente' ? 'warning' : tipo === 'sucesso' ? 'checkmark-circle' : 'information-circle';
+
 export const getAvisos = async (): Promise<AvisosResponse> => {
-  let avisosLocais: Aviso[] = [];
+  // Fonte da verdade: tabela "aviso" no Supabase (igual para todos os aparelhos).
+  try {
+    const response = await apiClient.get<any[]>('/aviso?select=*&order=id.desc');
+    const lista = (Array.isArray(response.data) ? response.data : [])
+      .filter((a: any) => a?.ativo !== false)
+      .map((a: any) => {
+        const aviso = normalizarAviso(a);
+        return { ...aviso, icon: aviso.icon || iconeDoAviso(aviso.tipo) };
+      });
+    try {
+      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(lista));
+    } catch {}
+    return { success: true, avisos: lista };
+  } catch (err: any) {
+    console.warn('Supabase /aviso indisponível, usando cache local:', err?.message || err);
+  }
+
+  // Sem conexão: mostra os últimos avisos baixados neste aparelho.
+  let avisosCache: Aviso[] = [];
   try {
     const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        avisosLocais = parsed;
-      }
+      if (Array.isArray(parsed)) avisosCache = parsed;
     }
   } catch {}
-
-  if (avisosLocais.length === 0) {
-    avisosLocais = [...MOCK_AVISOS];
-    try {
-      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(avisosLocais));
-    } catch {}
-  }
-
   return {
-    success: true,
-    avisos: avisosLocais,
+    success: avisosCache.length > 0,
+    avisos: avisosCache,
+    message: avisosCache.length > 0 ? undefined : 'Sem conexão com o servidor para carregar os avisos.',
   };
 };
 
@@ -1311,63 +1526,103 @@ export const createAviso = async (dados: {
     return { success: false, message: 'Título e descrição são obrigatórios.' };
   }
 
-  const agora = new Date();
-  const novoAviso: Aviso = {
-    id: `aviso_${Date.now()}`,
-    tipo: dados.tipo || 'info',
+  const tipo = dados.tipo || 'info';
+  const base = {
     titulo: dados.titulo.trim(),
     descricao: dados.descricao.trim(),
-    data: `Hoje, ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
-    icon: dados.tipo === 'urgente' ? 'warning' : dados.tipo === 'sucesso' ? 'check-circle' : 'info',
+    data: new Date().toISOString(),
+    icon: iconeDoAviso(tipo),
+    ativo: true,
   };
 
-  try {
-    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
-    const lista: Aviso[] = raw ? JSON.parse(raw) : [...MOCK_AVISOS];
-    lista.unshift(novoAviso);
-    await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(lista));
-  } catch (err) {
-    console.warn('Erro ao salvar aviso no storage:', err);
+  // O banco pode guardar o tipo em maiúsculas (padrão do backend) ou minúsculas.
+  const variantesTipo =
+    tipo === 'urgente' ? ['URGENTE', 'urgente'] : tipo === 'sucesso' ? ['SUCESSO', 'OK', 'sucesso'] : ['INFO', 'info'];
+
+  let ultimoErro: any = null;
+  for (const tipoDb of variantesTipo) {
+    try {
+      const response = await apiClient.post<any[]>('/aviso', { ...base, tipo: tipoDb }, PREFER_RETORNO);
+      const linha = Array.isArray(response.data) ? response.data[0] : response.data;
+      const aviso = linha ? normalizarAviso(linha) : normalizarAviso({ ...base, tipo: tipoDb });
+      return {
+        success: true,
+        aviso: { ...aviso, icon: aviso.icon || iconeDoAviso(aviso.tipo) },
+        message: 'Aviso publicado com sucesso!',
+      };
+    } catch (err: any) {
+      ultimoErro = err;
+      // Só tenta outra grafia do tipo se o erro for de validação dos dados
+      if (err?.status !== 400) break;
+    }
   }
 
-  return { success: true, aviso: novoAviso, message: 'Aviso publicado com sucesso!' };
+  console.warn('Erro ao publicar aviso no Supabase:', ultimoErro?.message || ultimoErro);
+  return {
+    success: false,
+    message: getApiErrorMessage(ultimoErro, 'Não foi possível publicar o aviso no servidor.'),
+  };
 };
 
 export const deleteAviso = async (avisoId: string): Promise<{ success: boolean; message: string }> => {
+  const filtro = `/aviso?id=eq.${encodeURIComponent(String(avisoId))}`;
   try {
-    const raw = await storageHelper.getItem(ADMIN_AVISOS_STORAGE_KEY);
-    if (raw) {
-      const lista: Aviso[] = JSON.parse(raw);
-      const filtrados = lista.filter((a) => a.id !== avisoId);
-      await storageHelper.setItem(ADMIN_AVISOS_STORAGE_KEY, JSON.stringify(filtrados));
+    const resp = await apiClient.delete<any[]>(filtro, PREFER_RETORNO);
+    if (Array.isArray(resp.data) && resp.data.length > 0) {
+      return { success: true, message: 'Aviso removido com sucesso!' };
     }
-  } catch {}
-  return { success: true, message: 'Aviso removido com sucesso!' };
+    // Sem permissão para apagar: desativa o aviso para que suma de todos os aparelhos
+    const upd = await apiClient.patch<any[]>(filtro, { ativo: false }, PREFER_RETORNO);
+    if (Array.isArray(upd.data) && upd.data.length > 0) {
+      return { success: true, message: 'Aviso removido com sucesso!' };
+    }
+    return { success: false, message: 'O servidor não permitiu remover este aviso.' };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível remover o aviso no servidor.'),
+    };
+  }
 };
 
 // ==========================================
 // 3. TELAS DE MOTORISTA: VIAGEM E GPS
 // ==========================================
 
+/** Atualiza o status da viagem no banco (o status pode estar em maiúsculas ou minúsculas). */
+const atualizarStatusViagem = async (viagemId: string, status: 'EM_ANDAMENTO' | 'ENCERRADA') => {
+  const filtro = `/viagem?id=eq.${encodeURIComponent(String(viagemId))}&select=id`;
+  try {
+    const resp = await apiClient.patch<any[]>(filtro, { status }, PREFER_RETORNO);
+    if (Array.isArray(resp.data) && resp.data.length > 0) return true;
+  } catch (err: any) {
+    if (err?.status !== 400) throw err;
+  }
+  const resp = await apiClient.patch<any[]>(filtro, { status: status.toLowerCase() }, PREFER_RETORNO);
+  return Array.isArray(resp.data) && resp.data.length > 0;
+};
+
 export const iniciarRota = async (rotaId: string): Promise<GpsResponse> => {
   try {
-    // Endpoint real: POST /api/viagens/{viagemId}/iniciar
-    const response = await apiClient.post<any>(`/api/viagens/${rotaId}/iniciar`);
-    return { success: true, message: response.data?.message || 'Rota iniciada com sucesso!' };
+    const ok = await atualizarStatusViagem(rotaId, 'EM_ANDAMENTO');
+    return ok
+      ? { success: true, message: 'Rota iniciada! Os alunos já podem acompanhar o ônibus.' }
+      : { success: false, message: 'Viagem não encontrada no servidor.' };
   } catch (err: any) {
-    console.warn('Backend iniciar viagem indisponível:', err?.message || err);
+    console.warn('Erro ao iniciar viagem:', err?.message || err);
     return { success: false, message: 'Não foi possível iniciar a rota no servidor. Verifique a conexão e tente de novo.' };
   }
 };
 
 export const encerrarRota = async (rotaId: string): Promise<GpsResponse> => {
   try {
-    // Endpoint real: POST /api/viagens/{viagemId}/encerrar
-    const response = await apiClient.post<any>(`/api/viagens/${rotaId}/encerrar`);
-    return { success: true, message: response.data?.message || 'Rota encerrada com sucesso!' };
+    const ok = await atualizarStatusViagem(rotaId, 'ENCERRADA');
+    return ok
+      ? { success: true, message: 'Rota encerrada com sucesso!' }
+      : { success: false, message: 'Viagem não encontrada no servidor.' };
   } catch (err: any) {
-    console.warn('Backend encerrar viagem indisponível:', err?.message || err);
-    return { success: true, message: 'Rota encerrada com sucesso (local)!' };
+    console.warn('Erro ao encerrar viagem:', err?.message || err);
+    return { success: false, message: 'Não foi possível encerrar a rota no servidor. Tente novamente.' };
   }
 };
 
@@ -1386,37 +1641,44 @@ export const updateGpsPosition = async (data: { rotaId: string; position: GpsPos
   } catch {}
 
   try {
-    // Endpoint real: POST /api/viagens/{viagemId}/gps
-    await apiClient.post<any>(`/api/viagens/${data.rotaId}/gps`, {
-      latitude: data.position.latitude,
-      longitude: data.position.longitude,
-      timestamp: data.position.timestamp || Date.now(),
-    });
+    await apiClient.post<any>(
+      '/viagem_gps?on_conflict=viagem_id',
+      {
+        viagem_id: Number(data.rotaId) || data.rotaId,
+        latitude: data.position.latitude,
+        longitude: data.position.longitude,
+        atualizado_em: new Date(data.position.timestamp || Date.now()).toISOString(),
+      },
+      { headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } }
+    );
     return { success: true, message: 'GPS sincronizado' };
   } catch (err: any) {
-    console.warn('Backend GPS indisponível:', err?.message || err);
-    return { success: true, message: 'GPS registrado localmente' };
+    console.warn('Erro ao enviar GPS:', err?.message || err);
+    return { success: false, message: 'Sem conexão para enviar a posição do ônibus.' };
   }
 };
 
 export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean; position?: { latitude: number; longitude: number; timestamp?: number }; message?: string }> => {
   try {
-    // Endpoint real: GET /api/viagens/{viagemId}/gps/ultima
-    const response = await apiClient.get<any>(`/api/viagens/${rotaId}/gps/ultima`);
-    if (response.data && response.data.latitude != null) {
+    const response = await apiClient.get<any[]>(
+      `/viagem_gps?viagem_id=eq.${encodeURIComponent(String(rotaId))}&select=*`
+    );
+    const pos = Array.isArray(response.data) ? response.data[0] : null;
+    if (pos && pos.latitude != null) {
       return {
         success: true,
         position: {
-          latitude: Number(response.data.latitude),
-          longitude: Number(response.data.longitude),
+          latitude: Number(pos.latitude),
+          longitude: Number(pos.longitude),
+          timestamp: pos.atualizado_em ? new Date(pos.atualizado_em).getTime() : undefined,
         },
       };
     }
-  } catch (err: any) {
-    // sem posição disponível na nuvem
+  } catch {
+    // sem posição na nuvem
   }
 
-  // Fallback: verificar última posição no storageHelper local
+  // Mesmo aparelho do motorista (ou sem internet): última posição local
   try {
     const raw = await storageHelper.getItem(`${GPS_STORAGE_PREFIX}${rotaId}`);
     if (raw) {
@@ -1424,11 +1686,7 @@ export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean
       if (pos && pos.latitude != null && pos.longitude != null) {
         return {
           success: true,
-          position: {
-            latitude: Number(pos.latitude),
-            longitude: Number(pos.longitude),
-            timestamp: pos.timestamp,
-          },
+          position: { latitude: Number(pos.latitude), longitude: Number(pos.longitude), timestamp: pos.timestamp },
         };
       }
     }
@@ -1440,10 +1698,8 @@ export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean
 export const getHistorico = async (): Promise<HistoricoResponse> => {
   try {
     // Endpoint real do backend: /api/viagens
-    const response = await apiClient.get<any>('/api/viagens');
-    const lista = Array.isArray(response.data)
-      ? response.data
-      : response.data?.viagens;
+    const response = await getViagensResp();
+    const lista = response.data;
     if (Array.isArray(lista)) {
       return {
         success: true,
@@ -1501,172 +1757,100 @@ const mapAlunoParaCadastro = (a: any): AlunoCadastrado => ({
   status: 'ativo',
 });
 
+/** Mapa id -> nome de cidades e faculdades (para exibir nas listas do admin). */
+const nomesCidadesFaculdades = async () => {
+  const [cidades, faculdades] = await Promise.all([getCidades(), getInstituicoes()]);
+  const cidade: Record<string, string> = {};
+  const faculdade: Record<string, string> = {};
+  cidades.forEach((c) => { cidade[String(c.id)] = c.nome; });
+  faculdades.forEach((f) => { faculdade[String(f.id)] = f.nome; });
+  return { cidade, faculdade };
+};
+
+const COLUNAS_ALUNO = 'cpf,nome_completo,numero_celular,cidade_id,faculdade_id,status,motivo_recusa';
+
 export const getSolicitacoesAlunos = async (): Promise<{ success: boolean; solicitacoes: SolicitacaoAluno[]; message?: string }> => {
-  let lista: SolicitacaoAluno[] = [];
-
-  // Tenta backend
   try {
-    const response = await apiClient.get<any[]>('/api/usuarios/alunos/solicitacoes');
-    if (Array.isArray(response.data)) {
-      lista = response.data.map(mapAlunoParaSolicitacao);
-    }
+    const [resp, nomes] = await Promise.all([
+      apiClient.get<any[]>(`/aluno?status=eq.PENDENTE&select=${COLUNAS_ALUNO}&order=nome_completo.asc`),
+      nomesCidadesFaculdades(),
+    ]);
+    const solicitacoes: SolicitacaoAluno[] = (Array.isArray(resp.data) ? resp.data : []).map((a: any) => ({
+      id: String(a.cpf),
+      nome: a.nome_completo || '',
+      cpf: String(a.cpf || ''),
+      email: '',
+      telefone: formatarTelefone(a.numero_celular),
+      cidade: nomes.cidade[String(a.cidade_id)] || '',
+      escola: nomes.faculdade[String(a.faculdade_id)] || '',
+      dataSolicitacao: '',
+      status: 'pendente',
+    }));
+    return { success: true, solicitacoes };
   } catch (err: any) {
-    // backend offline, usa dados locais
+    return {
+      success: false,
+      solicitacoes: [],
+      message: getApiErrorMessage(err, 'Não foi possível carregar as solicitações.'),
+    };
   }
+};
 
-  // Carrega do storage local e do mock
+/** Busca o id da rota fixa pelo nome. */
+const idDaRotaPorNome = async (rotaNome: string): Promise<string | null> => {
+  const resp = await apiClient.get<any[]>(`/rota?nome=eq.${encodeURIComponent(rotaNome)}&select=id`);
+  const linha = Array.isArray(resp.data) ? resp.data[0] : null;
+  return linha?.id != null ? String(linha.id) : null;
+};
+
+/** Coloca o aluno numa rota (substitui a rota anterior, se houver). */
+export const vincularAlunoRota = async (alunoCpf: string, rotaId: string) => {
+  await apiClient.post(
+    '/aluno_rota?on_conflict=aluno_cpf',
+    { aluno_cpf: digitos(alunoCpf), rota_id: Number(rotaId) || rotaId },
+    { headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } }
+  );
+};
+
+/** Admin: muda a rota de um aluno já aprovado. */
+export const trocarRotaAluno = async (alunoCpf: string, rotaNome: string): Promise<{ success: boolean; message: string }> => {
   try {
-    const raw = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
-    if (raw) {
-      const parsed: SolicitacaoAluno[] = JSON.parse(raw);
-      parsed.forEach((s) => {
-        if (!lista.some((item) => item.cpf === s.cpf)) {
-          lista.unshift(s);
-        }
-      });
-    }
-  } catch {}
-
-  // Adiciona as do mock em memória que não estejam na lista
-  MOCK_SOLICITACOES.forEach((s) => {
-    if (!lista.some((item) => item.cpf === s.cpf)) {
-      lista.push(s);
-    }
-  });
-
-  // Filtra as que já foram aprovadas pelo Administrador
-  try {
-    const rawAprov = await storageHelper.getItem(APROVACOES_STORAGE_KEY);
-    const aprovados: string[] = rawAprov ? JSON.parse(rawAprov) : [];
-    lista = lista.filter((s) => !aprovados.includes(s.cpf) && s.status === 'pendente');
-  } catch {}
-
-  return { success: true, solicitacoes: lista };
+    const rotaId = await idDaRotaPorNome(rotaNome);
+    if (!rotaId) return { success: false, message: `Rota "${rotaNome}" não encontrada.` };
+    await vincularAlunoRota(alunoCpf, rotaId);
+    return { success: true, message: `Aluno agora está na rota "${rotaNome}".` };
+  } catch (err: any) {
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível trocar a rota do aluno.') };
+  }
 };
 
 export const aprovarSolicitacao = async (
   solicitacaoId: string,
-  rotaNome: string = 'Linha 01 - Nassau Noturno'
+  rotaNome: string = ''
 ): Promise<{ success: boolean; message: string }> => {
-  const cpfLimpo = solicitacaoId.replace(/\D/g, '');
-
+  const cpfLimpo = digitos(solicitacaoId);
   try {
-    await apiClient.patch(`/api/usuarios/alunos/${encodeURIComponent(solicitacaoId)}/aprovar`);
+    const resp = await apiClient.patch<any[]>(
+      `/aluno?cpf=eq.${cpfLimpo}&select=cpf`,
+      { status: 'APROVADO', motivo_recusa: null },
+      PREFER_RETORNO
+    );
+    if (!Array.isArray(resp.data) || resp.data.length === 0) {
+      return { success: false, message: 'Aluno não encontrado ou o servidor não permitiu a aprovação.' };
+    }
+
+    if (rotaNome) {
+      const rotaId = await idDaRotaPorNome(rotaNome);
+      if (rotaId) {
+        await vincularAlunoRota(cpfLimpo, rotaId);
+        return { success: true, message: `Aluno aprovado e vinculado à rota "${rotaNome}".` };
+      }
+      return { success: true, message: `Aluno aprovado, mas a rota "${rotaNome}" não foi encontrada. Vincule-o em Gerenciar Rotas.` };
+    }
+    return { success: true, message: 'Aluno aprovado!' };
   } catch (err: any) {
-    console.warn('Backend indisponível ao aprovar aluno, salvando localmente:', err?.message || err);
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível aprovar o aluno.') };
   }
-
-  // 1. Marca como aprovado em APROVACOES_STORAGE_KEY
-  try {
-    const rawAprov = await storageHelper.getItem(APROVACOES_STORAGE_KEY);
-    const aprovados: string[] = rawAprov ? JSON.parse(rawAprov) : [];
-    if (!aprovados.includes(cpfLimpo)) {
-      aprovados.push(cpfLimpo);
-    }
-    await storageHelper.setItem(APROVACOES_STORAGE_KEY, JSON.stringify(aprovados));
-  } catch {}
-
-  // 2. Mapeia CPF -> Rota em ALUNOS_ROTAS_STORAGE_KEY
-  try {
-    const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
-    const mapRotas: Record<string, string> = rawMap ? JSON.parse(rawMap) : {};
-    mapRotas[cpfLimpo] = rotaNome;
-    await storageHelper.setItem(ALUNOS_ROTAS_STORAGE_KEY, JSON.stringify(mapRotas));
-  } catch {}
-
-  // 3. Obtém nome e escola do aluno
-  let nomeAluno = 'Aluno Aprovado';
-  let escolaAluno = '';
-  try {
-    const rawSol = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
-    if (rawSol) {
-      const sols: SolicitacaoAluno[] = JSON.parse(rawSol);
-      const achado = sols.find((s) => s.cpf === cpfLimpo);
-      if (achado) {
-        nomeAluno = achado.nome;
-        escolaAluno = achado.escola;
-      }
-    }
-  } catch {}
-
-  // 4. Atualiza ADMIN_ROTAS_STORAGE_KEY: adiciona aluno à rota
-  try {
-    const rawRotas = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-    let rotas: Rota[] = rawRotas ? JSON.parse(rawRotas) : [...ROTAS_PADRAO_INICIAIS];
-
-    rotas = rotas.map((r) => {
-      const match =
-        r.nome.trim().toLowerCase() === rotaNome.trim().toLowerCase() ||
-        r.nome.trim().toLowerCase().includes(rotaNome.trim().toLowerCase()) ||
-        rotaNome.trim().toLowerCase().includes(r.nome.trim().toLowerCase());
-
-      const outrosAlunos = (r.alunos || []).filter((a) => a.id !== cpfLimpo);
-      const outrosIds = (r as any).alunosIds
-        ? (r as any).alunosIds.filter((id: string) => id !== cpfLimpo)
-        : [];
-
-      if (match) {
-        return {
-          ...r,
-          alunosIds: [...outrosIds, cpfLimpo],
-          alunos: [
-            ...outrosAlunos,
-            {
-              id: cpfLimpo,
-              nome: nomeAluno,
-              escola: escolaAluno || r.escola,
-              parada: r.paradas?.[0]?.nome || 'Ponto de Partida',
-              presente: false,
-              confirmouPresenca: false,
-            },
-          ],
-        };
-      }
-
-      return {
-        ...r,
-        alunosIds: outrosIds,
-        alunos: outrosAlunos,
-      };
-    });
-
-    await storageHelper.setItem(ADMIN_ROTAS_STORAGE_KEY, JSON.stringify(rotas));
-  } catch (err) {
-    console.warn('Erro ao atualizar rotas do admin:', err);
-  }
-
-  // 5. Atualiza user_data_v2 se o usuário atual logado for este aluno
-  try {
-    const rawUser = await storageHelper.getItem('user_data_v2');
-    if (rawUser) {
-      const u = JSON.parse(rawUser);
-      if (String(u.id).replace(/\D/g, '') === cpfLimpo) {
-        u.rotaNome = rotaNome;
-        await storageHelper.setItem('user_data_v2', JSON.stringify(u));
-      }
-    }
-  } catch {}
-
-  // 6. Atualiza arrays de mock
-  MOCK_SOLICITACOES = MOCK_SOLICITACOES.filter((s) => s.cpf !== cpfLimpo);
-  const jaAtivo = MOCK_ALUNOS_ATIVOS.find((a) => a.cpf === cpfLimpo);
-  if (jaAtivo) {
-    jaAtivo.rotaNome = rotaNome;
-  } else {
-    MOCK_ALUNOS_ATIVOS.push({
-      id: cpfLimpo,
-      nome: nomeAluno,
-      cpf: cpfLimpo,
-      email: `${cpfLimpo}@aluno.edutransporte`,
-      telefone: '',
-      cidade: '',
-      escola: escolaAluno,
-      rotaNome: rotaNome,
-      status: 'ativo',
-    });
-  }
-
-  return { success: true, message: `Aluno aprovado! Acesso liberado para a rota "${rotaNome}".` };
 };
 
 export const recusarSolicitacao = async (
@@ -1674,7 +1858,14 @@ export const recusarSolicitacao = async (
   motivo: string
 ): Promise<{ success: boolean; message: string }> => {
   try {
-    await apiClient.patch(`/api/usuarios/alunos/${encodeURIComponent(solicitacaoId)}/recusar`, { motivo });
+    const resp = await apiClient.patch<any[]>(
+      `/aluno?cpf=eq.${digitos(solicitacaoId)}&select=cpf`,
+      { status: 'RECUSADO', motivo_recusa: motivo || 'Documentação não conferida.' },
+      PREFER_RETORNO
+    );
+    if (!Array.isArray(resp.data) || resp.data.length === 0) {
+      return { success: false, message: 'Aluno não encontrado ou o servidor não permitiu a recusa.' };
+    }
     return { success: true, message: 'Solicitação recusada.' };
   } catch (err: any) {
     return { success: false, message: getApiErrorMessage(err, 'Não foi possível recusar o aluno.') };
@@ -1690,73 +1881,67 @@ export const cadastrarMotoristaAdmin = async (dados: {
   rotaId: string;
   rotaNome: string;
 }): Promise<{ success: boolean; message: string; motorista?: MotoristaCadastrado }> => {
-  const cpfLimpo = dados.cpf.replace(/\D/g, '');
+  const cpfLimpo = digitos(dados.cpf);
   const placaFormatada = dados.placa.trim().toUpperCase();
+  if (cpfLimpo.length !== 11) return { success: false, message: 'CPF do motorista inválido.' };
+  if (!dados.nome.trim()) return { success: false, message: 'Informe o nome do motorista.' };
 
   try {
-    // O backend exige cidade: usa a primeira cidade cadastrada (Caruaru).
-    let cidadeId = 1;
-    try {
-      const cidades = await apiClient.get<any[]>('/cidades');
-      if (Array.isArray(cidades.data) && cidades.data.length > 0) {
-        cidadeId = Number(cidades.data[0]?.id) || 1;
-      }
-    } catch {
-      // mantém o padrão
-    }
+    const cidades = await getCidades();
+    const cidadeId = Number(cidades[0]?.id) || 1;
 
-    const telefoneLimpo = (dados.telefone || '').replace(/\D/g, '') || '81999990000';
-    const email = `${cpfLimpo}@motorista.edutransporte`;
-
-    await apiClient.post<any>('/api/usuarios/motoristas', {
+    // Senha inicial 12345 (criptografada pelo banco)
+    await apiClient.post('/motorista', {
       cpf: cpfLimpo,
-      nomeCompleto: dados.nome.trim(),
-      email,
-      numeroCelular: telefoneLimpo,
+      nome_completo: dados.nome.trim(),
+      email: `${cpfLimpo}@motorista.edutransporte`,
+      numero_celular: digitos(dados.telefone) || '81999990000',
       senha: '12345',
-      carteiraConducao: (dados.cnh || '00000000000').trim(),
-      cidadeId,
+      carteira_conducao: (dados.cnh || '00000000000').trim(),
+      cidade_id: cidadeId,
     });
 
-    // Garante que o veículo exista para que rotas possam ser atribuídas.
     if (placaFormatada) {
       try {
-        const veiculos = await apiClient.get<any[]>('/api/veiculos');
-        const existe = Array.isArray(veiculos.data)
-          && veiculos.data.some((v: any) => String(v.placa || '').toUpperCase() === placaFormatada);
-        if (!existe) {
-          await apiClient.post('/api/veiculos', {
-            placa: placaFormatada,
-            modelo: `Veículo de ${dados.nome.trim()}`,
-          });
+        const veiculos = await apiClient.get<any[]>(`/veiculo?placa=eq.${encodeURIComponent(placaFormatada)}&select=placa`);
+        if (!Array.isArray(veiculos.data) || veiculos.data.length === 0) {
+          await apiClient.post('/veiculo', { placa: placaFormatada, modelo: `Veículo de ${dados.nome.trim()}` });
         }
       } catch (err: any) {
         console.warn('Não foi possível cadastrar o veículo:', err?.message || err);
       }
     }
 
-    const novoMotorista: MotoristaCadastrado = {
-      id: cpfLimpo,
-      nome: dados.nome.trim(),
-      cpf: cpfLimpo,
-      telefone: dados.telefone,
-      cnh: dados.cnh,
-      placa: placaFormatada,
-      rotaId: dados.rotaId,
-      rotaNome: dados.rotaNome,
-      criadoEm: new Date().toLocaleDateString('pt-BR'),
-    };
+    // Motorista assume a rota escolhida
+    if (dados.rotaNome) {
+      try {
+        await apiClient.patch(
+          `/rota?nome=eq.${encodeURIComponent(dados.rotaNome)}`,
+          { motorista_cpf: cpfLimpo, ...(placaFormatada ? { veiculo_placa: placaFormatada } : {}) }
+        );
+      } catch (err: any) {
+        console.warn('Não foi possível vincular o motorista à rota:', err?.message || err);
+      }
+    }
 
     return {
       success: true,
       message: 'Motorista cadastrado com sucesso! Senha inicial: 12345',
-      motorista: novoMotorista,
+      motorista: {
+        id: cpfLimpo,
+        nome: dados.nome.trim(),
+        cpf: cpfLimpo,
+        telefone: dados.telefone,
+        cnh: dados.cnh,
+        placa: placaFormatada,
+        rotaId: dados.rotaId,
+        rotaNome: dados.rotaNome,
+        criadoEm: new Date().toLocaleDateString('pt-BR'),
+      },
     };
   } catch (err: any) {
-    return {
-      success: false,
-      message: getApiErrorMessage(err, 'Não foi possível cadastrar o motorista no servidor.'),
-    };
+    if (err?.status === 409) return { success: false, message: 'Já existe um motorista com este CPF.' };
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível cadastrar o motorista no servidor.') };
   }
 };
 
@@ -1768,118 +1953,55 @@ export const getUsuariosAdmin = async (): Promise<{
   message?: string;
 }> => {
   try {
-    const response = await apiClient.get<any[]>('/api/usuarios/alunos');
-    const lista = Array.isArray(response.data) ? response.data : [];
+    const [solResp, alunosResp, motResp, rotas, vinculos, nomes] = await Promise.all([
+      getSolicitacoesAlunos(),
+      apiClient.get<any[]>(`/aluno?status=eq.APROVADO&select=${COLUNAS_ALUNO}&order=nome_completo.asc`),
+      apiClient.get<any[]>('/motorista?select=cpf,nome_completo,numero_celular,carteira_conducao&order=nome_completo.asc'),
+      lerRotasDb().catch(() => [] as any[]),
+      apiClient.get<any[]>('/aluno_rota?select=aluno_cpf,rota_id').then((r) => r.data || []).catch(() => [] as any[]),
+      nomesCidadesFaculdades(),
+    ]);
 
-    let motoristas: MotoristaCadastrado[] = [];
-    try {
-      const motoristasResp = await apiClient.get<any[]>('/api/usuarios/motoristas');
-      motoristas = (Array.isArray(motoristasResp.data) ? motoristasResp.data : []).map((m: any) => ({
-        id: String(m.cpf),
-        nome: m.nomeCompleto || '',
-        cpf: String(m.cpf || ''),
-        telefone: m.numeroCelular || '',
-        cnh: m.carteiraConducao || '',
-        placa: m.placa || '',
-        rotaId: '',
-        rotaNome: 'A definir',
-        criadoEm: '',
-      }));
-    } catch {
-      motoristas = [];
-    }
+    const nomeRota: Record<string, string> = {};
+    rotas.forEach((r: any) => { nomeRota[String(r.id)] = r.nome; });
+    const rotaDoAluno: Record<string, string> = {};
+    (vinculos as any[]).forEach((v: any) => { rotaDoAluno[String(v.aluno_cpf)] = nomeRota[String(v.rota_id)] || ''; });
 
-    // Carrega mapeamento local de rotas dos alunos
-    let mapRotas: Record<string, string> = {};
-    try {
-      const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
-      if (rawMap) mapRotas = JSON.parse(rawMap);
-    } catch {}
-
-    const solicitacoes = lista
-      .filter((a: any) => String(a.status || 'PENDENTE').toUpperCase() === 'PENDENTE')
-      .map(mapAlunoParaSolicitacao);
-
-    let alunos = lista
-      .filter((a: any) => String(a.status || 'PENDENTE').toUpperCase() === 'APROVADO')
-      .map(mapAlunoParaCadastro)
-      .map((al) => ({
-        ...al,
-        rotaNome: mapRotas[al.cpf] || al.rotaNome,
-      }));
-
-    // Mescla com alunos aprovados localmente
-    try {
-      const rawAprov = await storageHelper.getItem(APROVACOES_STORAGE_KEY);
-      const aprovados: string[] = rawAprov ? JSON.parse(rawAprov) : [];
-      const rawSol = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
-      if (rawSol) {
-        const todasSols: SolicitacaoAluno[] = JSON.parse(rawSol);
-        todasSols.forEach((s) => {
-          if (aprovados.includes(s.cpf) && !alunos.some((a) => a.cpf === s.cpf)) {
-            alunos.unshift({
-              id: s.cpf,
-              nome: s.nome,
-              cpf: s.cpf,
-              email: s.email,
-              telefone: s.telefone,
-              cidade: s.cidade,
-              escola: s.escola,
-              rotaNome: mapRotas[s.cpf] || 'Linha 01 - Nassau Noturno',
-              status: 'ativo',
-            });
-          }
-        });
-      }
-    } catch {}
-
-    return { success: true, solicitacoes, motoristas, alunos };
-  } catch (err: any) {
-    console.warn('Backend indisponível em getUsuariosAdmin, usando dados locais');
-
-    let mapRotas: Record<string, string> = {};
-    try {
-      const rawMap = await storageHelper.getItem(ALUNOS_ROTAS_STORAGE_KEY);
-      if (rawMap) mapRotas = JSON.parse(rawMap);
-    } catch {}
-
-    const solResp = await getSolicitacoesAlunos();
-    const solicitacoes = solResp.solicitacoes;
-
-    let alunos: AlunoCadastrado[] = [...MOCK_ALUNOS_ATIVOS].map((al) => ({
-      ...al,
-      rotaNome: mapRotas[al.cpf] || al.rotaNome,
+    const alunos: AlunoCadastrado[] = (Array.isArray(alunosResp.data) ? alunosResp.data : []).map((a: any) => ({
+      id: String(a.cpf),
+      nome: a.nome_completo || '',
+      cpf: String(a.cpf || ''),
+      email: '',
+      telefone: formatarTelefone(a.numero_celular),
+      cidade: nomes.cidade[String(a.cidade_id)] || '',
+      escola: nomes.faculdade[String(a.faculdade_id)] || '',
+      rotaNome: rotaDoAluno[String(a.cpf)] || 'Sem rota',
+      status: 'ativo',
     }));
 
-    try {
-      const rawAprov = await storageHelper.getItem(APROVACOES_STORAGE_KEY);
-      const aprovados: string[] = rawAprov ? JSON.parse(rawAprov) : [];
-      const rawSol = await storageHelper.getItem(SOLICITACOES_STORAGE_KEY);
-      if (rawSol) {
-        const todasSols: SolicitacaoAluno[] = JSON.parse(rawSol);
-        todasSols.forEach((s) => {
-          if (aprovados.includes(s.cpf) && !alunos.some((a) => a.cpf === s.cpf)) {
-            alunos.unshift({
-              id: s.cpf,
-              nome: s.nome,
-              cpf: s.cpf,
-              email: s.email,
-              telefone: s.telefone,
-              cidade: s.cidade,
-              escola: s.escola,
-              rotaNome: mapRotas[s.cpf] || 'Linha 01 - Nassau Noturno',
-              status: 'ativo',
-            });
-          }
-        });
-      }
-    } catch {}
+    const motoristas: MotoristaCadastrado[] = (Array.isArray(motResp.data) ? motResp.data : []).map((m: any) => {
+      const rota = rotas.find((r: any) => String(r.motorista_cpf || '') === String(m.cpf));
+      return {
+        id: String(m.cpf),
+        nome: m.nome_completo || '',
+        cpf: String(m.cpf || ''),
+        telefone: formatarTelefone(m.numero_celular),
+        cnh: m.carteira_conducao || '',
+        placa: rota?.veiculo_placa || '',
+        rotaId: rota ? String(rota.id) : '',
+        rotaNome: rota?.nome || 'Sem rota',
+        criadoEm: '',
+      };
+    });
 
+    return { success: true, solicitacoes: solResp.solicitacoes, motoristas, alunos };
+  } catch (err: any) {
     return {
-      success: true,
-      solicitacoes,
-      motoristas: MOCK_MOTORISTAS,
-      alunos,
+      success: false,
+      solicitacoes: [],
+      motoristas: [],
+      alunos: [],
+      message: getApiErrorMessage(err, 'Não foi possível carregar os usuários do servidor.'),
     };
   }
 };
@@ -1888,15 +2010,15 @@ export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
   try {
     // Monta as estatísticas a partir dos endpoints reais do backend
     const [alunosResp, motoristasResp, avisosResp, viagensResp] = await Promise.all([
-      apiClient.get<any[]>('/api/usuarios/alunos'),
-      apiClient.get<any[]>('/api/usuarios/motoristas'),
-      apiClient.get<any[]>('/api/avisos'),
-      apiClient.get<any[]>('/api/viagens'),
+      apiClient.get<any[]>('/aluno?select=cpf,status'),
+      apiClient.get<any[]>('/motorista?select=cpf'),
+      apiClient.get<any[]>('/aviso?select=id,ativo'),
+      getViagensResp(),
     ]);
 
     const alunos = Array.isArray(alunosResp.data) ? alunosResp.data : [];
     const motoristas = Array.isArray(motoristasResp.data) ? motoristasResp.data : [];
-    const avisos = Array.isArray(avisosResp.data) ? avisosResp.data : [];
+    const avisos = (Array.isArray(avisosResp.data) ? avisosResp.data : []).filter((a: any) => a?.ativo !== false);
     const viagens = Array.isArray(viagensResp.data) ? viagensResp.data : [];
 
     return {
@@ -1943,144 +2065,122 @@ export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
 };
 
 export const getAdminRotas = async (): Promise<AdminRotasResponse> => {
-  let rotasLocais: Rota[] = [];
   try {
-    const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        rotasLocais = parsed;
-      }
+    const [rotasDb, vinculos] = await Promise.all([
+      lerRotasDb(),
+      apiClient.get<any[]>('/aluno_rota?select=aluno_cpf,rota_id').then((r) => r.data || []),
+    ]);
+    const cpfs = Array.from(new Set((vinculos as any[]).map((v: any) => String(v.aluno_cpf))));
+    const nomes: Record<string, string> = {};
+    if (cpfs.length > 0) {
+      const resp = await apiClient.get<any[]>(`/aluno?cpf=in.(${cpfs.join(',')})&select=cpf,nome_completo`);
+      (resp.data || []).forEach((a: any) => { nomes[String(a.cpf)] = a.nome_completo || ''; });
     }
-  } catch {}
-
-  try {
-    const response = await apiClient.get<any[]>('/admin/rotas');
-    const lista = Array.isArray(response.data) ? response.data : [];
-    const rotas: Rota[] = lista.map((r: any) => ({
-      id: String(r.id ?? ''),
-      nome: r.nome || 'Rota',
-      escola: r.escola || '',
-      horario: formatarHoraApi(r.horario),
-      tipo: normalizarTipoViagem(r.tipo),
-      status: normalizarStatusRota(r.status),
-      paradas: (Array.isArray(r.paradas) ? r.paradas : []).map((p: any, index: number) => ({
-        id: `p-${r.id}-${index + 1}`,
-        nome: p.nome || `Parada ${index + 1}`,
-        endereco: p.endereco || p.nome || '',
-        latitude: Number(p.latitude ?? 0),
-        longitude: Number(p.longitude ?? 0),
-      })),
-      alunos: Array.isArray(r.alunos) ? r.alunos : [],
-    }));
-
-    // Mantém também o que estiver em cache local, sem duplicar pelo nome.
-    rotasLocais.forEach((local) => {
-      if (!rotas.some((apiR) => apiR.nome.toLowerCase() === local.nome.toLowerCase())) {
-        rotas.push(local);
-      }
+    const rotas = rotasDb.map((r: any) => {
+      const alunos: RotaAluno[] = (vinculos as any[])
+        .filter((v: any) => String(v.rota_id) === String(r.id))
+        .map((v: any) => ({
+          id: String(v.aluno_cpf),
+          nome: nomes[String(v.aluno_cpf)] || 'Aluno',
+          escola: r.escola || '',
+          parada: '',
+          presente: false,
+        }));
+      return rotaDbParaRota(r, alunos);
     });
-
     return { success: true, rotas };
   } catch (err: any) {
-    console.warn('Backend /admin/rotas indisponível:', err?.message || err);
+    console.warn('Erro ao carregar rotas do Supabase:', err?.message || err);
     return {
       success: false,
-      message: getApiErrorMessage(err, 'Não foi possível carregar as rotas do servidor.'),
-      rotas: rotasLocais.length > 0 ? rotasLocais : ROTAS_PADRAO_INICIAIS,
+      rotas: [],
+      message: err?.status === 404
+        ? 'As tabelas de rotas ainda não foram criadas no banco. Rode o arquivo supabase/migrations/20261109010000_rotas_agenda.sql no Supabase.'
+        : getApiErrorMessage(err, 'Não foi possível carregar as rotas do servidor.'),
     };
   }
 };
 
+/** Converte nomes de dias ("Segunda", "Ter"...) para "1,2" (0 = domingo). */
+const diasSemanaParaDb = (dias?: string[]): string => {
+  if (!dias || dias.length === 0) return '1,2,3,4,5';
+  const chaves = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+  const numeros = dias
+    .map((d) => chaves.indexOf(String(d).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').slice(0, 3)))
+    .filter((n) => n >= 0);
+  return numeros.length > 0 ? Array.from(new Set(numeros)).sort().join(',') : '1,2,3,4,5';
+};
+
 export const createRota = async (data: CreateRotaInput & { paradas?: Parada[] }): Promise<{ success: boolean; message: string; rota?: Rota }> => {
-  const paradasNovaRota: Parada[] = data.paradas && data.paradas.length > 0
-    ? data.paradas
-    : [
-        {
-          id: `p-${Date.now()}-1`,
-          nome: 'Ponto de Partida / Terminal',
-          endereco: 'Centro, Caruaru - PE',
-          latitude: -8.2842,
-          longitude: -35.9712,
-        },
-        {
-          id: `p-${Date.now()}-2`,
-          nome: data.escola ? `${data.escola} (Destino)` : 'Destino Final',
-          endereco: 'Polo Universitário, Caruaru - PE',
-          latitude: -8.2680,
-          longitude: -35.9630,
-        },
-      ];
+  const paradas = data.paradas || [];
+  if (!data.nome?.trim()) return { success: false, message: 'Informe o nome da rota.' };
+  if (paradas.length === 0) return { success: false, message: 'Marque pelo menos uma parada.' };
 
   try {
-    const response = await apiClient.post<any>('/admin/rotas', {
-      nome: data.nome,
-      escola: data.escola,
-      horario: data.horario,
-      tipo: data.tipo,
-      motoristaId: data.motoristaId || '',
-      paradas: paradasNovaRota.map((p) => ({
-        nome: p.nome,
-        latitude: p.latitude,
-        longitude: p.longitude,
-      })),
-    });
-
-    const r = response.data || {};
-    const novaRota: Rota = {
-      id: String(r.id ?? ''),
-      nome: r.nome || data.nome,
-      escola: r.escola || data.escola,
-      horario: formatarHoraApi(r.horario) || data.horario,
-      tipo: normalizarTipoViagem(r.tipo),
-      status: normalizarStatusRota(r.status),
-      paradas: paradasNovaRota,
-      alunos: [],
-    };
+    const resp = await apiClient.post<any[]>(
+      '/rota',
+      {
+        nome: data.nome.trim(),
+        escola: (data.escola || '').trim(),
+        horario: data.horario || '18:00',
+        tipo: data.tipo === 'Volta' ? 'volta' : 'ida',
+        dias_semana: diasSemanaParaDb(data.diasSemana),
+        motorista_cpf: digitos(data.motoristaId) || null,
+        ativo: true,
+      },
+      PREFER_RETORNO
+    );
+    const rotaDb = Array.isArray(resp.data) ? resp.data[0] : resp.data;
+    if (!rotaDb?.id) return { success: false, message: 'O servidor não confirmou a criação da rota.' };
 
     try {
-      const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-      const lista: Rota[] = raw ? JSON.parse(raw) : [];
-      lista.push(novaRota);
-      await storageHelper.setItem(ADMIN_ROTAS_STORAGE_KEY, JSON.stringify(lista));
-    } catch {}
+      await apiClient.post(
+        '/rota_parada',
+        paradas.map((p, i) => ({
+          rota_id: rotaDb.id,
+          ordem: i + 1,
+          nome: p.nome,
+          endereco: p.endereco || '',
+          latitude: p.latitude,
+          longitude: p.longitude,
+        }))
+      );
+    } catch (err) {
+      // Não deixa rota sem paradas para trás
+      await apiClient.delete(`/rota?id=eq.${rotaDb.id}`).catch(() => {});
+      throw err;
+    }
 
-    return { success: true, message: 'Rota criada e disponibilizada para todos os alunos!', rota: novaRota };
-  } catch (err: any) {
+    for (const cpf of data.alunosIds || []) {
+      await vincularAlunoRota(cpf, String(rotaDb.id)).catch(() => {});
+    }
+
     return {
-      success: false,
-      message: getApiErrorMessage(err, 'Não foi possível criar a rota no servidor.'),
+      success: true,
+      message: 'Rota criada e disponibilizada para todos os aparelhos!',
+      rota: rotaDbParaRota({ ...rotaDb, rota_parada: paradas.map((p, i) => ({ ...p, ordem: i + 1 })) }),
     };
+  } catch (err: any) {
+    if (err?.status === 409) return { success: false, message: 'Já existe uma rota com esse nome.' };
+    if (err?.status === 404) {
+      return {
+        success: false,
+        message: 'As tabelas de rotas ainda não foram criadas no banco. Rode o arquivo supabase/migrations/20261109010000_rotas_agenda.sql no Supabase.',
+      };
+    }
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível criar a rota no servidor.') };
   }
 };
 
 export const deleteRota = async (rotaId: string): Promise<{ success: boolean; message: string }> => {
-  const removerDoCache = async () => {
-    try {
-      const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-      if (raw) {
-        const lista: Rota[] = JSON.parse(raw);
-        await storageHelper.setItem(ADMIN_ROTAS_STORAGE_KEY,
-          JSON.stringify(lista.filter((r) => r.id !== rotaId)));
-      }
-    } catch {}
-  };
-
-  // Rotas antigas criadas só no navegador têm id "rota-...".
-  if (!/^\d+$/.test(rotaId)) {
-    await removerDoCache();
-    return { success: true, message: 'Rota removida do cache local.' };
-  }
-
   try {
-    await apiClient.delete(`/admin/rotas/${rotaId}`);
-    await removerDoCache();
-    return { success: true, message: 'Rota excluída com sucesso!' };
+    const resp = await apiClient.delete<any[]>(`/rota?id=eq.${encodeURIComponent(String(rotaId))}`, PREFER_RETORNO);
+    if (Array.isArray(resp.data) && resp.data.length > 0) {
+      return { success: true, message: 'Rota excluída com sucesso!' };
+    }
+    return { success: false, message: 'Rota não encontrada ou o servidor não permitiu excluir.' };
   } catch (err: any) {
-    return {
-      success: false,
-      message: getApiErrorMessage(err, 'Não foi possível excluir a rota no servidor.'),
-    };
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível excluir a rota.') };
   }
 };
 
@@ -2100,7 +2200,7 @@ const normalizarFeriado = (f: any): Feriado => ({
 
 export const getFeriados = async (): Promise<FeriadosResponse> => {
   try {
-    const response = await apiClient.get<any[]>('/admin/feriados');
+    const response = await apiClient.get<any[]>('/feriado?select=*&order=data.asc');
     const lista = Array.isArray(response.data) ? response.data : [];
     const feriados = lista.map(normalizarFeriado);
     try {
@@ -2108,7 +2208,7 @@ export const getFeriados = async (): Promise<FeriadosResponse> => {
     } catch {}
     return { success: true, feriados };
   } catch (err: any) {
-    console.warn('Backend /admin/feriados indisponível:', err?.message || err);
+    console.warn('Supabase /feriado indisponível:', err?.message || err);
     let feriadosLocais: Feriado[] = [];
     try {
       const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
@@ -2136,12 +2236,13 @@ export const createFeriado = async (data: { nome: string; data: string; motivo: 
   }
 
   try {
-    const response = await apiClient.post<any>('/admin/feriados', {
+    const response = await apiClient.post<any[]>('/feriado', {
       data: dataIso,
       nome: data.nome.trim(),
       descricao: data.motivo?.trim() || 'Evento escolar / Feriado',
-    });
-    const feriado = normalizarFeriado(response.data);
+    }, PREFER_RETORNO);
+    const linha = Array.isArray(response.data) ? response.data[0] : response.data;
+    const feriado = normalizarFeriado(linha || { data: dataIso, nome: data.nome.trim(), descricao: data.motivo });
     try {
       const raw = await storageHelper.getItem(ADMIN_FERIADOS_STORAGE_KEY);
       const lista: Feriado[] = raw ? JSON.parse(raw) : [];
@@ -2152,7 +2253,9 @@ export const createFeriado = async (data: { nome: string; data: string; motivo: 
   } catch (err: any) {
     return {
       success: false,
-      message: getApiErrorMessage(err, 'Não foi possível cadastrar o feriado no servidor.'),
+      message: err?.status === 409
+        ? 'Já existe um feriado/evento cadastrado nesta data.'
+        : getApiErrorMessage(err, 'Não foi possível cadastrar o feriado no servidor.'),
     };
   }
 };
@@ -2176,7 +2279,7 @@ export const deleteFeriado = async (feriadoId: string): Promise<{ success: boole
   }
 
   try {
-    await apiClient.delete(`/admin/feriados/${dataIso}`);
+    await apiClient.delete(`/feriado?data=eq.${dataIso}`);
     await removerDoCache();
     return { success: true, message: 'Feriado excluído com sucesso!' };
   } catch (err: any) {
@@ -2249,67 +2352,117 @@ export const createConvite = async (): Promise<{ success: boolean; convite?: Con
 // 5. PERFIL DO USUÁRIO
 // ==========================================
 
-export const getPerfil = async (): Promise<PerfilResponse> => {
-  // Fonte da verdade: backend (dados atualizados em qualquer aparelho).
-  try {
-    const resp = await apiClient.get<any>('/api/usuarios/perfil');
-    const p = resp.data;
-    if (p) {
-      return {
-        success: true,
-        usuario: {
-          id: String(p.id || ''),
-          nome: p.nome || '',
-          email: p.email || '',
-          telefone: p.telefone || '',
-          cidade: p.cidade || '',
-          role: p.role === 'motorista' ? 'motorista' : p.role === 'admin' ? 'admin' : 'aluno',
-          escola: p.escola || '',
-        },
-      };
-    }
-  } catch (err: any) {
-    console.warn('Backend /api/usuarios/perfil indisponível:', err?.message || err);
-  }
-
+/** Lê o usuário logado salvo na sessão deste aparelho. */
+const usuarioDaSessao = async (): Promise<any | null> => {
   try {
     const raw = await storageHelper.getItem('user_data_v2');
-    if (raw) {
-      const u = JSON.parse(raw);
-      return {
-        success: true,
-        usuario: {
-          id: String(u.id || ''),
-          nome: u.nome || '',
-          email: u.email || '',
-          telefone: u.telefone || '',
-          cidade: u.cidade || '',
-          role: u.role === 'motorista' ? 'motorista' : u.role === 'admin' ? 'admin' : 'aluno',
-          escola: u.escola || '',
-        },
-      };
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Formata telefone brasileiro: (00) 00000-0000 ou (00) 0000-0000. */
+export const formatarTelefone = (valor?: string | null): string => {
+  const d = String(valor || '').replace(/\D/g, '').slice(0, 11);
+  if (d.length === 0) return '';
+  if (d.length <= 2) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+};
+
+export const getPerfil = async (): Promise<PerfilResponse> => {
+  const sessao = await usuarioDaSessao();
+  if (!sessao) return { success: false, message: 'Usuário não autenticado.' };
+
+  const role: Usuario['role'] = sessao.role === 'motorista' ? 'motorista' : sessao.role === 'admin' ? 'admin' : 'aluno';
+  const cpf = String(sessao.id || '').replace(/\D/g, '');
+  const usuario: Usuario = {
+    id: String(sessao.id || ''),
+    nome: sessao.nome || '',
+    email: sessao.email || '',
+    telefone: sessao.telefone || '',
+    cidade: sessao.cidade || '',
+    role,
+    escola: sessao.escola || '',
+  };
+
+  // Fonte da verdade: Supabase (dados iguais em qualquer aparelho).
+  if (cpf.length === 11 && role !== 'admin') {
+    try {
+      const tabela = role === 'motorista' ? 'motorista' : 'aluno';
+      const colunas = role === 'motorista'
+        ? 'cpf,nome_completo,numero_celular,cidade_id,email'
+        : 'cpf,nome_completo,numero_celular,cidade_id,faculdade_id';
+      const resp = await apiClient.get<any[]>(`/${tabela}?cpf=eq.${cpf}&select=${colunas}`);
+      const db = Array.isArray(resp.data) ? resp.data[0] : null;
+      if (db) {
+        const [cidades, faculdades] = await Promise.all([getCidades(), getInstituicoes()]);
+        usuario.nome = db.nome_completo || usuario.nome;
+        usuario.telefone = formatarTelefone(db.numero_celular) || usuario.telefone;
+        if (db.email) usuario.email = db.email;
+        const cidade = cidades.find((c) => Number(c.id) === Number(db.cidade_id));
+        if (cidade) usuario.cidade = cidade.nome;
+        const faculdade = faculdades.find((f) => Number(f.id) === Number(db.faculdade_id));
+        if (faculdade) usuario.escola = faculdade.nome;
+      }
+    } catch (err: any) {
+      console.warn('Supabase perfil indisponível, usando dados da sessão:', err?.message || err);
     }
-  } catch (err: any) {
-    console.warn('Perfil local indisponível:', err?.message || err);
   }
 
-  return { success: false, message: 'Usuário não autenticado.' };
+  return { success: true, usuario };
 };
 
 export const updatePerfil = async (data: Partial<Usuario>): Promise<PerfilUpdateResponse> => {
+  const sessao = await usuarioDaSessao();
+  if (!sessao) return { success: false, message: 'Sessão expirada. Faça login novamente.' };
+
+  const role = sessao.role === 'motorista' ? 'motorista' : sessao.role === 'admin' ? 'admin' : 'aluno';
+  const cpf = String(sessao.id || '').replace(/\D/g, '');
+  const telefoneDigitos = String(data.telefone || '').replace(/\D/g, '');
+
+  if (telefoneDigitos && telefoneDigitos.length < 10) {
+    return { success: false, message: 'Telefone incompleto. Use o formato (00) 00000-0000.' };
+  }
+
   try {
-    const response = await apiClient.put<any>('/api/usuarios/perfil', {
-      nome: data.nome,
-      email: data.email,
-      telefone: data.telefone,
-      cidade: data.cidade,
-      escola: data.escola,
-    });
-    return { success: true, message: response.data?.message || 'Perfil atualizado com sucesso!' };
+    if (role !== 'admin' && cpf.length === 11) {
+      const [cidades, faculdades] = await Promise.all([getCidades(), getInstituicoes()]);
+      const cidade = cidades.find((c) => textoNorm(c.nome) === textoNorm(data.cidade));
+      const faculdade = faculdades.find((f) => textoNorm(f.nome) === textoNorm(data.escola));
+
+      const payload: Record<string, any> = {};
+      if (data.nome?.trim()) payload.nome_completo = data.nome.trim();
+      if (telefoneDigitos) payload.numero_celular = telefoneDigitos;
+      if (cidade) payload.cidade_id = cidade.id;
+      if (role === 'aluno' && faculdade) payload.faculdade_id = faculdade.id;
+      if (role === 'motorista' && data.email?.trim()) payload.email = data.email.trim();
+
+      const tabela = role === 'motorista' ? 'motorista' : 'aluno';
+      const resp = await apiClient.patch<any[]>(`/${tabela}?cpf=eq.${cpf}&select=cpf`, payload, PREFER_RETORNO);
+      if (!Array.isArray(resp.data) || resp.data.length === 0) {
+        return { success: false, message: 'O servidor não permitiu salvar as alterações. Tente novamente mais tarde.' };
+      }
+    }
+
+    // Atualiza a sessão deste aparelho com os novos dados
+    const atualizado = {
+      ...sessao,
+      nome: data.nome?.trim() || sessao.nome,
+      email: data.email?.trim() || sessao.email,
+      telefone: formatarTelefone(telefoneDigitos),
+      cidade: data.cidade || '',
+      escola: data.escola || '',
+    };
+    await storageHelper.setItem('user_data_v2', JSON.stringify(atualizado));
+
+    return { success: true, message: 'Suas informações foram atualizadas no servidor e já aparecem em todos os seus aparelhos.' };
   } catch (err: any) {
     return {
       success: false,
-      message: getApiErrorMessage(err, 'Não foi possível atualizar o perfil no servidor.'),
+      message: getApiErrorMessage(err, 'Não foi possível salvar o perfil no servidor.'),
     };
   }
 };
@@ -2338,99 +2491,100 @@ export const alterarSenha = async (senhaAtual: string, novaSenha: string): Promi
   }
 };
 
+const isoParaData = (iso: string): Date => {
+  const [a, m, d] = iso.split('-').map(Number);
+  return new Date(a, m - 1, d);
+};
+
+const dataParaIso = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+const rotuloDia = (d: Date) => {
+  const curta = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const dia = d.toLocaleDateString('pt-BR', { weekday: 'long' });
+  return `${curta} - ${dia.charAt(0).toUpperCase() + dia.slice(1)}`;
+};
+
+/**
+ * Agenda dos próximos 14 dias: viagens das rotas do usuário (aluno: sua rota;
+ * motorista: rotas que dirige; admin: todas) e os feriados/eventos do admin.
+ */
 export const getRotasAgenda = async (): Promise<AgendaResponse> => {
-  let viagensDb: any[] = [];
   try {
-    const response = await apiClient.get<any[]>('/api/viagens');
-    if (Array.isArray(response.data)) {
-      viagensDb = response.data;
+    const hoje = isoParaData(hojeLocalIso());
+    const fim = new Date(hoje);
+    fim.setDate(hoje.getDate() + 13);
+    const inicioIso = dataParaIso(hoje);
+    const fimIso = dataParaIso(fim);
+
+    const [feriadosResp, rotasUsuario] = await Promise.all([
+      apiClient.get<any[]>(`/feriado?data=gte.${inicioIso}&data=lte.${fimIso}&select=*&order=data.asc`),
+      rotasDoUsuario().catch(() => null),
+    ]);
+    const feriados = Array.isArray(feriadosResp.data) ? feriadosResp.data : [];
+
+    let rotas: any[] = [];
+    if (rotasUsuario) rotas = rotasUsuario;
+    else rotas = await lerRotasDb().catch(() => []);
+
+    let viagens: any[] = [];
+    if (rotas.length > 0) {
+      try {
+        const resp = await apiClient.get<any[]>(
+          `/viagem?data=gte.${inicioIso}&data=lte.${fimIso}&rota_id=in.(${rotas.map((r) => r.id).join(',')})&select=id,data,status,rota_id`
+        );
+        viagens = Array.isArray(resp.data) ? resp.data : [];
+      } catch {}
     }
+
+    const itens: RotaAgenda[] = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(hoje);
+      d.setDate(hoje.getDate() + i);
+      const iso = dataParaIso(d);
+      const rotulo = rotuloDia(d);
+
+      const feriadosDoDia = feriados.filter((f: any) => String(f.data).slice(0, 10) === iso);
+      feriadosDoDia.forEach((f: any) => {
+        itens.push({
+          id: `feriado_${iso}`,
+          data: rotulo,
+          dataIso: iso,
+          feriado: true,
+          nome: f.nome || 'Feriado',
+          descricao: f.descricao || 'Sem transporte neste dia',
+          escola: f.descricao || '',
+          horario: '',
+          tipo: 'Ida',
+          status: 'encerrada',
+          paradas: [],
+        });
+      });
+      if (feriadosDoDia.length > 0) continue; // feriado: sem viagens
+
+      const dow = String(d.getDay());
+      rotas
+        .filter((r: any) => String(r.dias_semana || '1,2,3,4,5').replace(/\s/g, '').split(',').includes(dow))
+        .forEach((r: any) => {
+          const v = viagens.find((x: any) => String(x.rota_id) === String(r.id) && String(x.data).slice(0, 10) === iso);
+          const rota = rotaDbParaRota(r);
+          itens.push({
+            id: `rota_${r.id}_${iso}`,
+            data: rotulo,
+            dataIso: iso,
+            nome: rota.nome,
+            escola: rota.escola,
+            horario: rota.horario,
+            tipo: rota.tipo,
+            status: v ? normalizarStatusRota(v.status) : 'agendada',
+            paradas: rota.paradas,
+          });
+        });
+    }
+
+    return { success: true, rotas: itens };
   } catch (err: any) {
-    console.warn('Backend /api/viagens indisponível para agenda:', err?.message || err);
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível carregar a agenda. Verifique sua conexão.') };
   }
-
-  if (viagensDb.length > 0) {
-    const rotasReais: RotaAgenda[] = viagensDb.map((v: any) => {
-      let dataFormatada = '';
-      if (v.data) {
-        const d = new Date(`${v.data}T00:00:00`);
-        if (!Number.isNaN(d.getTime())) {
-          const curta = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-          const dia = d.toLocaleDateString('pt-BR', { weekday: 'long' });
-          dataFormatada = `${curta} - ${dia.charAt(0).toUpperCase() + dia.slice(1)}`;
-        }
-      }
-      return {
-        id: String(v.id ?? ''),
-        data: dataFormatada,
-        nome: v.nomeRota || 'Rota',
-        escola: v.escola || '',
-        horario: formatarHoraApi(v.horario) || '18:00',
-        tipo: normalizarTipoViagem(v.tipo),
-        status: normalizarStatusRota(v.status),
-        paradas: [],
-      };
-    });
-
-    return { success: true, rotas: rotasReais };
-  }
-
-  // Carrega rotas do Admin
-  let adminRotas: Rota[] = [];
-  try {
-    const raw = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) adminRotas = parsed;
-    }
-  } catch {}
-
-  if (adminRotas.length === 0) {
-    adminRotas = [...ROTAS_PADRAO_INICIAIS];
-  }
-
-  // Gera lista dos próximos 14 dias
-  const rotasAgenda: RotaAgenda[] = [];
-  const hoje = new Date();
-
-  for (let i = 0; i < 14; i++) {
-    const d = new Date(hoje);
-    d.setDate(hoje.getDate() + i);
-
-    // Pula fins de semana na agenda padrão
-    const diaSemanaNum = d.getDay();
-    if (diaSemanaNum === 0 || diaSemanaNum === 6) continue;
-
-    const dataCurta = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-    const diaSemana = d.toLocaleDateString('pt-BR', { weekday: 'long' });
-    const dataFormatada = `${dataCurta} - ${diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}`;
-
-    adminRotas.forEach((r, idx) => {
-      rotasAgenda.push({
-        id: `agenda_${r.id}_${i}_ida`,
-        data: dataFormatada,
-        nome: `${r.nome} (Ida)`,
-        escola: r.escola || 'Polo Universitário',
-        horario: r.horario || '17:45',
-        tipo: 'Ida',
-        status: i === 0 ? 'em_andamento' : 'agendada',
-        paradas: r.paradas || [],
-      });
-
-      rotasAgenda.push({
-        id: `agenda_${r.id}_${i}_volta`,
-        data: dataFormatada,
-        nome: `${r.nome} (Retorno)`,
-        escola: r.escola || 'Retorno Garagem',
-        horario: '22:30',
-        tipo: 'Volta',
-        status: 'agendada',
-        paradas: r.paradas || [],
-      });
-    });
-  }
-
-  return { success: true, rotas: rotasAgenda };
 };
 
 export const fakeLogin = login;
@@ -2650,7 +2804,7 @@ export const limparChatRota = async (rotaIdOuNome: string): Promise<boolean> => 
 export const getRotasParaChat = async (): Promise<Array<{ id: string; nome: string; escola?: string; horario?: string; alunosQtd: number }>> => {
   // Rotas reais do backend: é a mesma lista que alunos e motoristas veem.
   try {
-    const response = await apiClient.get<any[]>('/api/viagens');
+    const response = await getViagensResp();
     if (Array.isArray(response.data) && response.data.length > 0) {
       return response.data.map((v: any) => ({
         id: String(v.id ?? ''),

@@ -6,14 +6,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, SafeAreaView, 
-  ScrollView, Platform, ActivityIndicator, TextInput, Modal, Alert 
+  ScrollView, Platform, ActivityIndicator, TextInput, Modal 
 } from 'react-native';
+import { Alert } from '@/components/Alert';
 import { Feather, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
 import { 
   getUsuariosAdmin, aprovarSolicitacao, recusarSolicitacao, cadastrarMotoristaAdmin,
-  getAdminRotas, SolicitacaoAluno, MotoristaCadastrado, AlunoCadastrado 
+  getAdminRotas, trocarRotaAluno, SolicitacaoAluno, MotoristaCadastrado, AlunoCadastrado 
 } from '../../services/api';
 
 const ROTAS_DISPONIVEIS = [
@@ -40,6 +41,8 @@ export default function GerenciarUsuarios() {
   const [solicitacaoSelecionada, setSolicitacaoSelecionada] = useState<SolicitacaoAluno | null>(null);
   const [rotaSelecionada, setRotaSelecionada] = useState(ROTAS_DISPONIVEIS[0]);
   const [processandoAprovacao, setProcessandoAprovacao] = useState(false);
+  // true = modal usado para trocar a rota de um aluno já aprovado
+  const [modoTrocaRota, setModoTrocaRota] = useState(false);
 
   // Modal de Cadastro de Motorista
   const [modalMotoristaVisivel, setModalMotoristaVisivel] = useState(false);
@@ -71,14 +74,24 @@ export default function GerenciarUsuarios() {
 
     try {
       const rotasRes = await getAdminRotas();
-      if (rotasRes.success && rotasRes.rotas.length > 0) {
-        const nomes = rotasRes.rotas.map((r) => r.nome);
+      // Só rotas que existem no banco (as de exemplo não podem ser vinculadas)
+      if (rotasRes.success) {
+        const nomes = (rotasRes.rotas || []).map((r) => r.nome);
         setRotasDisponiveis(nomes);
+        setNovoMotorista((prev) => ({ ...prev, rotaNome: nomes[0] || '' }));
       }
     } catch {}
   };
 
+  const abrirModalTrocarRota = (alu: AlunoCadastrado) => {
+    setModoTrocaRota(true);
+    setSolicitacaoSelecionada({ id: alu.cpf, nome: alu.nome, cpf: alu.cpf, email: '', telefone: alu.telefone, cidade: alu.cidade, escola: alu.escola, dataSolicitacao: '', status: 'aprovada' });
+    setRotaSelecionada(rotasDisponiveis.includes(alu.rotaNome) ? alu.rotaNome : rotasDisponiveis[0]);
+    setModalAprovarVisivel(true);
+  };
+
   const abrirModalAprovar = (sol: SolicitacaoAluno) => {
+    setModoTrocaRota(false);
     setSolicitacaoSelecionada(sol);
     setRotaSelecionada(rotasDisponiveis[0] || 'Linha 01 - Nassau Noturno');
     setModalAprovarVisivel(true);
@@ -87,7 +100,9 @@ export default function GerenciarUsuarios() {
   const confirmarAprovacao = async () => {
     if (!solicitacaoSelecionada) return;
     setProcessandoAprovacao(true);
-    const res = await aprovarSolicitacao(solicitacaoSelecionada.id, rotaSelecionada);
+    const res = modoTrocaRota
+      ? await trocarRotaAluno(solicitacaoSelecionada.cpf, rotaSelecionada)
+      : await aprovarSolicitacao(solicitacaoSelecionada.id, rotaSelecionada);
     setProcessandoAprovacao(false);
     setModalAprovarVisivel(false);
 
@@ -385,7 +400,10 @@ export default function GerenciarUsuarios() {
                   <View style={[styles.cardDetailsGrid, { backgroundColor: theme.inputBg, marginTop: 12 }]}>
                     <View style={styles.detailRow}>
                       <FontAwesome5 name="route" size={12} color={theme.gold} />
-                      <Text style={[styles.detailText, { color: theme.text }]}>{alu.rotaNome}</Text>
+                      <Text style={[styles.detailText, { color: theme.text, flex: 1 }]}>{alu.rotaNome}</Text>
+                      <TouchableOpacity onPress={() => abrirModalTrocarRota(alu)}>
+                        <Text style={{ color: theme.gold, fontWeight: 'bold', fontSize: 12 }}>Trocar rota</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 </View>
@@ -409,7 +427,7 @@ export default function GerenciarUsuarios() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Aprovar Solicitação</Text>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>{modoTrocaRota ? 'Trocar Rota do Aluno' : 'Aprovar Solicitação'}</Text>
               <TouchableOpacity onPress={() => setModalAprovarVisivel(false)}>
                 <Feather name="x" size={22} color={theme.subtext} />
               </TouchableOpacity>
@@ -454,7 +472,7 @@ export default function GerenciarUsuarios() {
                 disabled={processandoAprovacao}
               >
                 <Text style={styles.modalBtnConfirmText}>
-                  {processandoAprovacao ? 'Salvando...' : 'Confirmar e Liberar Acesso'}
+                  {processandoAprovacao ? 'Salvando...' : modoTrocaRota ? 'Salvar Rota' : 'Confirmar e Liberar Acesso'}
                 </Text>
               </TouchableOpacity>
             </View>
