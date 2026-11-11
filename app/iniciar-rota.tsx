@@ -13,7 +13,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, Activit
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useApp } from '../_layout';
+import { useApp } from './_layout';
 import { getRotaDoDia, iniciarRota, encerrarRota, updateGpsPosition, Rota, RotaResponse } from '@/services/api';
 import * as Location from 'expo-location';
 import { Alert } from '@/components/Alert';
@@ -35,6 +35,16 @@ export default function IniciarRota() {
     setLoading(false);
     if (result.success && result.rota) {
       setRota(result.rota);
+      if (result.rota.status === 'em_andamento') {
+        setiniciada(true);
+        setEncerrada(false);
+      } else if (result.rota.status === 'encerrada') {
+        setiniciada(false);
+        setEncerrada(true);
+      } else {
+        setiniciada(false);
+        setEncerrada(false);
+      }
     } else {
       setError(result.message || 'Erro ao carregar rota');
     }
@@ -193,11 +203,11 @@ export default function IniciarRota() {
     );
   };
 
-  if (userRole !== 'motorista') {
+  if (userRole === 'aluno') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
             <Feather name="arrow-left" size={24} color={theme.text} />
           </TouchableOpacity>
           <Text style={[styles.title, { color: theme.text }]}>Iniciar Rota</Text>
@@ -216,7 +226,7 @@ export default function IniciarRota() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
           <Feather name="arrow-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Iniciar Rota</Text>
@@ -308,7 +318,7 @@ export default function IniciarRota() {
                 <TouchableOpacity 
                   key={aluno.id} 
                   style={[styles.alunoCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => router.push('/(tabs)/presenca')}
+                  onPress={() => router.push('/presenca')}
                 >
                   <View style={[styles.alunoAvatar, { backgroundColor: theme.inputBg }]}>
                     <Text style={[styles.alunoInicial, { color: theme.gold }]}>

@@ -103,8 +103,12 @@ export default function Listas() {
               <Text style={styles.plateText}>ORE 3 • ESCOLAR</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={loadRota} style={styles.backBtn}>
-            <Feather name="refresh-cw" size={22} color={theme.gold} />
+          <TouchableOpacity onPress={loadRota} style={styles.backBtn} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator size="small" color={theme.gold} />
+            ) : (
+              <Feather name="refresh-cw" size={22} color={theme.gold} />
+            )}
           </TouchableOpacity>
         </View>
 
@@ -265,8 +269,12 @@ export default function Listas() {
             <Text style={[vs.topTitle, { color: theme.text }]}>Minha Viagem</Text>
             <Text style={[vs.topSub, { color: theme.subtext }]}>{dataHoje}</Text>
           </View>
-          <TouchableOpacity onPress={loadRota} style={[vs.roundBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Feather name="refresh-cw" size={18} color={theme.gold} />
+          <TouchableOpacity onPress={loadRota} style={[vs.roundBtn, { backgroundColor: theme.card, borderColor: theme.border }]} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator size="small" color={theme.gold} />
+            ) : (
+              <Feather name="refresh-cw" size={18} color={theme.gold} />
+            )}
           </TouchableOpacity>
         </View>
 

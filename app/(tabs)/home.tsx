@@ -677,13 +677,6 @@ export default function HomeScreen() {
                 <Text style={[styles.gridLabel, { color: theme.text }]}>Agenda</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/(tabs)/mapa')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(245,166,35,0.1)' }]}>
-                  <Feather name="compass" size={22} color={theme.gold} />
-                </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Acompanhar ao Vivo</Text>
-              </TouchableOpacity>
-
               <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/ajuda')}>
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(49,130,206,0.1)' }]}>
                   <Feather name="help-circle" size={22} color="#3182CE" />
@@ -707,7 +700,7 @@ export default function HomeScreen() {
                     borderWidth: 1,
                   }
                 ]} 
-                onPress={() => router.push('/(tabs)/iniciar-rota')}
+                onPress={() => router.push('/iniciar-rota')}
               >
                 <View style={[
                   styles.iconCircle, 
@@ -737,7 +730,7 @@ export default function HomeScreen() {
                     borderWidth: 1,
                   }
                 ]} 
-                onPress={() => router.push('/(tabs)/presenca')}
+                onPress={() => router.push('/presenca')}
               >
                 <View style={[
                   styles.iconCircle, 

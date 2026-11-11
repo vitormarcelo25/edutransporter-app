@@ -12,7 +12,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, Activit
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useApp } from '../_layout';
+import { useApp } from './_layout';
 import { getRotaDoDia, marcarPresenca, Rota, RotaResponse, PresencaResponse } from '@/services/api';
 
 export default function Presenca() {
@@ -70,11 +70,11 @@ export default function Presenca() {
   const confirmados = rota?.alunos.filter(a => a.confirmouPresenca).length || 0;
   const naoConfirmados = (rota?.alunos.length || 0) - confirmados;
 
-  if (userRole !== 'motorista') {
+  if (userRole === 'aluno') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
             <Feather name="arrow-left" size={24} color={theme.text} />
           </TouchableOpacity>
           <Text style={[styles.title, { color: theme.text }]}>Presença</Text>
@@ -83,7 +83,7 @@ export default function Presenca() {
         <View style={styles.centerContent}>
           <Feather name="alert-circle" size={64} color={theme.gold} />
           <Text style={[styles.accessDeniedText, { color: theme.text }]}>
-            Apenas motoristas podem marcar presença
+            Apenas motoristas podem gerenciar a presença geral
           </Text>
         </View>
       </SafeAreaView>
@@ -93,7 +93,7 @@ export default function Presenca() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
           <Feather name="arrow-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Presença</Text>

@@ -44,6 +44,8 @@ function RootLayoutNav() {
         <Stack.Screen name="avisos" />
         <Stack.Screen name="ajuda" />
         <Stack.Screen name="listas" />
+        <Stack.Screen name="iniciar-rota" />
+        <Stack.Screen name="presenca" />
 
         {/* Admin */}
         <Stack.Screen name="admin" />

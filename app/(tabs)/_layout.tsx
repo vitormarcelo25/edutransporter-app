@@ -71,16 +71,6 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => <Feather name="settings" size={size + 2} color={color} />,
         }}
       />
-
-      <Tabs.Screen
-        name="presenca"
-        options={{ href: null }}
-      />
-
-      <Tabs.Screen
-        name="iniciar-rota"
-        options={{ href: null }}
-      />
     </Tabs>
   );
 }

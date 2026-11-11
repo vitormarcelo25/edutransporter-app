@@ -355,39 +355,43 @@ export default function Registo() {
                   ))}
                 </View>
 
-                <View style={{ justifyContent: 'center' }}>
+                <View style={{ justifyContent: 'center', marginBottom: 16 }}>
                   <TextInput 
-                    style={[styles.inputSimple, { paddingRight: 50 }]} 
+                    style={[styles.inputSimple, { paddingRight: 50, marginBottom: 0 }]} 
                     placeholder="Criar uma Senha (padrão: 123456)" 
                     secureTextEntry={!showPassword}
                     placeholderTextColor={theme.textLight}
                     value={formData.password}
                     onChangeText={(v) => handleInputChange('password', v)}
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
-                    style={{ position: 'absolute', right: 18, top: 0, height: 50, justifyContent: 'center' }}
+                    style={{ position: 'absolute', right: 18, height: 50, justifyContent: 'center', zIndex: 10 }}
                     accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                   >
-                    <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textLight} />
+                    <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textLight || '#F5A623'} />
                   </TouchableOpacity>
                 </View>
 
-                <View style={{ justifyContent: 'center' }}>
+                <View style={{ justifyContent: 'center', marginBottom: 16 }}>
                   <TextInput 
-                    style={[styles.inputSimple, { paddingRight: 50 }]} 
+                    style={[styles.inputSimple, { paddingRight: 50, marginBottom: 0 }]} 
                     placeholder="Confirmar Senha" 
                     secureTextEntry={!showPassword}
                     placeholderTextColor={theme.textLight}
                     value={formData.confirmPassword}
                     onChangeText={(v) => handleInputChange('confirmPassword', v)}
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
-                    style={{ position: 'absolute', right: 18, top: 0, height: 50, justifyContent: 'center' }}
+                    style={{ position: 'absolute', right: 18, height: 50, justifyContent: 'center', zIndex: 10 }}
                     accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                   >
-                    <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textLight} />
+                    <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textLight || '#F5A623'} />
                   </TouchableOpacity>
                 </View>
 

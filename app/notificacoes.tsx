@@ -26,32 +26,39 @@ export default function Notificacoes() {
   }, []);
 
   const desativarTodas = async () => {
-    const todasLigadas = Object.values(config).some(Boolean);
+    const algumaLigada = Object.values(config).some(Boolean);
     const novo: NotificacoesConfig = {
-      avisos: !todasLigadas,
-      presenca: !todasLigadas,
-      mensagens: !todasLigadas,
-      rotas: !todasLigadas,
+      avisos: !algumaLigada,
+      presenca: !algumaLigada,
+      mensagens: !algumaLigada,
+      rotas: !algumaLigada,
     };
     setConfig(novo);
-    await updateNotificacoes(novo);
+    setSalvando(true);
+    try {
+      await updateNotificacoes(novo);
+    } finally {
+      setSalvando(false);
+    }
   };
 
   const toggleConfig = async (key: keyof NotificacoesConfig) => {
     const novoValor = !config[key];
-    
-    // Atualiza local primeiro
-    setConfig((prev: NotificacoesConfig) => ({ ...prev, [key]: novoValor }));
-    
-    setSalvando(true);
     const novoConfig = { ...config, [key]: novoValor };
-    const result: PerfilUpdateResponse = await updateNotificacoes(novoConfig);
-    setSalvando(false);
     
-    if (!result.success) {
-      // Reverte se falhar
-      setConfig(prev => ({ ...prev, [key]: !novoValor }));
-      Alert.alert('Erro', result.message || 'Erro ao salvar');
+    // Atualiza local primeiro para resposta visual instantânea
+    setConfig(novoConfig);
+    setSalvando(true);
+    try {
+      const result: PerfilUpdateResponse = await updateNotificacoes(novoConfig);
+      if (!result.success) {
+        setConfig(prev => ({ ...prev, [key]: !novoValor }));
+        Alert.alert('Atenção', result.message || 'Erro ao salvar preferência');
+      }
+    } catch {
+      // Mesmo com erro de rede, o storage local já preservou
+    } finally {
+      setSalvando(false);
     }
   };
 

@@ -59,30 +59,6 @@ export default function Segurança() {
     }
   };
 
-  // Função de renderização (não componente): evita remontar o input a cada tecla
-  const renderInputSenha = (label: string, field: 'atual' | 'nova' | 'confirmacao') => (
-    <View style={styles.inputGroup} key={field}>
-      <Text style={[styles.label, { color: theme.subtext }]}>{label}</Text>
-      <View style={[styles.inputContainer, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
-        <TextInput
-          style={[styles.input, { color: theme.text }]}
-          value={senhas[field]}
-          onChangeText={(v) => handleChange(field, v)}
-          secureTextEntry={!mostrarSenhas[field]}
-          placeholder={`Digite a ${label.toLowerCase()}`}
-          placeholderTextColor={theme.subtext}
-        />
-        <TouchableOpacity onPress={() => toggleMostrar(field)}>
-          <Feather 
-            name={mostrarSenhas[field] ? 'eye-off' : 'eye'} 
-            size={20} 
-            color={theme.subtext} 
-          />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -95,7 +71,7 @@ export default function Segurança() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {/* Alterar Senha */}
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.cardTitle, { color: theme.text }]}>Alterar Senha</Text>
@@ -103,9 +79,77 @@ export default function Segurança() {
             Sua senha deve ter pelo menos 6 caracteres
           </Text>
           
-          {renderInputSenha('Senha Atual', 'atual')}
-          {renderInputSenha('Nova Senha', 'nova')}
-          {renderInputSenha('Confirmar Nova Senha', 'confirmacao')}
+          {/* Senha Atual */}
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: theme.subtext }]}>Senha Atual</Text>
+            <View style={[styles.inputContainer, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+              <TextInput
+                style={[styles.input, { color: theme.text }]}
+                value={senhas.atual}
+                onChangeText={(v) => handleChange('atual', v)}
+                secureTextEntry={!mostrarSenhas.atual}
+                placeholder="Digite a senha atual"
+                placeholderTextColor={theme.subtext}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity onPress={() => toggleMostrar('atual')}>
+                <Feather 
+                  name={mostrarSenhas.atual ? 'eye-off' : 'eye'} 
+                  size={20} 
+                  color={theme.subtext} 
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Nova Senha */}
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: theme.subtext }]}>Nova Senha</Text>
+            <View style={[styles.inputContainer, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+              <TextInput
+                style={[styles.input, { color: theme.text }]}
+                value={senhas.nova}
+                onChangeText={(v) => handleChange('nova', v)}
+                secureTextEntry={!mostrarSenhas.nova}
+                placeholder="Digite a nova senha"
+                placeholderTextColor={theme.subtext}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity onPress={() => toggleMostrar('nova')}>
+                <Feather 
+                  name={mostrarSenhas.nova ? 'eye-off' : 'eye'} 
+                  size={20} 
+                  color={theme.subtext} 
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Confirmar Nova Senha */}
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: theme.subtext }]}>Confirmar Nova Senha</Text>
+            <View style={[styles.inputContainer, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+              <TextInput
+                style={[styles.input, { color: theme.text }]}
+                value={senhas.confirmacao}
+                onChangeText={(v) => handleChange('confirmacao', v)}
+                secureTextEntry={!mostrarSenhas.confirmacao}
+                placeholder="Digite a confirmar nova senha"
+                placeholderTextColor={theme.subtext}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity onPress={() => toggleMostrar('confirmacao')}>
+                <Feather 
+                  name={mostrarSenhas.confirmacao ? 'eye-off' : 'eye'} 
+                  size={20} 
+                  color={theme.subtext} 
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
 
           <TouchableOpacity 
             style={[styles.saveBtn, { backgroundColor: theme.gold }]} 
