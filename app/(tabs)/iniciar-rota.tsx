@@ -20,7 +20,7 @@ import { Alert } from '@/components/Alert';
 
 export default function IniciarRota() {
   const router = useRouter();
-  const voltar = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'));
+  const voltar = () => router.navigate('/(tabs)/home');
   const { theme, userRole } = useApp();
   const [loading, setLoading] = useState(true);
   const [rota, setRota] = useState<Rota | null>(null);
