@@ -17,6 +17,7 @@ import { getRotaDoDia, marcarPresenca, Rota, RotaResponse, PresencaResponse } fr
 
 export default function Presenca() {
   const router = useRouter();
+  const voltar = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'));
   const { theme, userRole } = useApp();
   const [loading, setLoading] = useState(true);
   const [rota, setRota] = useState<Rota | null>(null);
@@ -74,7 +75,7 @@ export default function Presenca() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={voltar}>
             <Feather name="arrow-left" size={24} color={theme.text} />
           </TouchableOpacity>
           <Text style={[styles.title, { color: theme.text }]}>Presença</Text>
@@ -93,7 +94,7 @@ export default function Presenca() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={voltar}>
           <Feather name="arrow-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Presença</Text>
