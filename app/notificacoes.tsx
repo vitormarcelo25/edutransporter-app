@@ -1,12 +1,12 @@
 // Tela de Notificações - configurar quais notificações receber
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, Switch } from 'react-native';
 import { Alert } from '@/components/Alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from './_layout';
-import { updateNotificacoes, NotificacoesConfig, PerfilUpdateResponse } from '@/services/api';
+import { updateNotificacoes, getNotificacoesLocal, NotificacoesConfig, PerfilUpdateResponse } from '@/services/api';
 
 export default function Notificacoes() {
   const router = useRouter();
@@ -18,6 +18,24 @@ export default function Notificacoes() {
     mensagens: true,
     rotas: true,
   });
+
+  useEffect(() => {
+    getNotificacoesLocal().then((salvo) => {
+      if (salvo) setConfig(salvo);
+    });
+  }, []);
+
+  const desativarTodas = async () => {
+    const todasLigadas = Object.values(config).some(Boolean);
+    const novo: NotificacoesConfig = {
+      avisos: !todasLigadas,
+      presenca: !todasLigadas,
+      mensagens: !todasLigadas,
+      rotas: !todasLigadas,
+    };
+    setConfig(novo);
+    await updateNotificacoes(novo);
+  };
 
   const toggleConfig = async (key: keyof NotificacoesConfig) => {
     const novoValor = !config[key];
@@ -78,6 +96,15 @@ export default function Notificacoes() {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Text style={[styles.sectionTitle, { color: theme.subtext }]}>TIPOS DE NOTIFICAÇÃO</Text>
+
+        <TouchableOpacity
+          onPress={desativarTodas}
+          style={{ alignSelf: 'flex-end', paddingVertical: 6, paddingHorizontal: 4, marginBottom: 8 }}
+        >
+          <Text style={{ color: theme.gold, fontWeight: '700', fontSize: 13 }}>
+            {Object.values(config).some(Boolean) ? 'Desativar todas' : 'Ativar todas'}
+          </Text>
+        </TouchableOpacity>
         
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <ItemSwitch 

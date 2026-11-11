@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator
+  StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, Platform, ActivityIndicator, RefreshControl
 } from 'react-native';
 import { Alert } from '@/components/Alert';
 import { Feather, FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -12,7 +12,7 @@ import { getRotaDoDia, confirmarPresenca, cancelarPresenca, Parada, Rota, Confir
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { theme, userRole, userData, confirmouPresenca, setConfirmouPresenca, assentoAutomatico, setAssentoAutomatico, ordemChegada, setOrdemChegada } = useApp();
+  const { theme, isDark, userRole, userData, confirmouPresenca, setConfirmouPresenca, assentoAutomatico, setAssentoAutomatico, ordemChegada, setOrdemChegada } = useApp();
   
   const [currentDate, setCurrentDate] = useState('');
   const [currentTime, setCurrentTime] = useState('');
@@ -100,6 +100,13 @@ export default function HomeScreen() {
     }
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadRotaData();
+    setRefreshing(false);
+  };
+
   // Recarrega a rota sempre que a tela entra em foco (ex: voltar de outra tela)
   useFocusEffect(
     React.useCallback(() => {
@@ -162,10 +169,16 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       
       {/* CABEÇALHO */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+      <View style={[
+        styles.header, 
+        { 
+          backgroundColor: userRole === 'motorista' ? (theme.header || theme.card) : theme.card, 
+          borderBottomColor: theme.border 
+        }
+      ]}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.welcomeText, { color: theme.text }]}>
-            {userRole === 'admin' ? 'Olá, Administrador' : `Olá, ${userData?.nome || (userRole === 'aluno' ? 'Aluno' : 'Motorista')}!`}
+            {userRole === 'admin' ? 'Olá, Administrador' : `Olá, ${userData?.nome || (userRole === 'aluno' ? 'Aluno' : 'Carlos Alberto Silva')}!`}
           </Text>
           <Text style={[styles.statusSub, { color: theme.subtext }]}>
             {currentDate} • {currentTime}
@@ -173,13 +186,38 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity style={[styles.profileBtn, { backgroundColor: theme.gold }]} onPress={() => router.push('/(tabs)/perfil')}>
-            <FontAwesome5 name="user-alt" size={16} color="#1A253A" />
+          <TouchableOpacity
+            style={[styles.profileBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.border, marginRight: 10 }]}
+            onPress={onRefresh}
+            accessibilityLabel="Atualizar"
+          >
+            {refreshing ? (
+              <ActivityIndicator size="small" color={theme.gold} />
+            ) : (
+              <Feather name="refresh-cw" size={16} color={theme.gold} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[
+              styles.profileBtn, 
+              { backgroundColor: theme.gold }
+            ]} 
+            onPress={() => router.push('/(tabs)/perfil')}
+          >
+            <FontAwesome5 
+              name="user-alt" 
+              size={16} 
+              color={userRole === 'motorista' ? (theme.onAccent || '#04201C') : '#1A253A'} 
+            />
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} colors={[theme.gold]} />}
+      >
         
         {userRole === 'aluno' && (
           <>
@@ -453,63 +491,114 @@ export default function HomeScreen() {
           <>
             {/* Painel de Gestão do Motorista */}
             <TouchableOpacity 
-              style={[styles.busCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+              style={[
+                styles.busCard, 
+                { 
+                  backgroundColor: theme.card, 
+                  borderColor: theme.border,
+                  borderRadius: 20,
+                  padding: 16,
+                  borderWidth: 1,
+                  shadowOpacity: 0.05,
+                }
+              ]}
               onPress={() => router.push('/listas')}
               activeOpacity={0.9}
             >
-              <View style={[styles.busIcon, { backgroundColor: theme.gold }]}>
-                <FontAwesome5 name="bus" size={30} color="#1A253A" />
+              <View style={[
+                styles.busIcon, 
+                { 
+                  backgroundColor: theme.gold,
+                  width: 56,
+                  height: 56,
+                  borderRadius: 16,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }
+              ]}>
+                <FontAwesome5 name="bus" size={26} color={theme.onAccent || '#04201C'} />
               </View>
               
-              <View style={styles.busInfo}>
-                <Text style={[styles.busTitle, { color: theme.text }]}>Painel de Gestão</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 5 }}>
-                  <MaterialCommunityIcons name="account-group" size={14} color={theme.gold} />
-                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: theme.gold }}>
+              <View style={[styles.busInfo, { marginLeft: 16 }]}>
+                <Text style={[styles.busTitle, { color: theme.text, fontSize: 19, fontWeight: '700' }]}>Painel de Gestão</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}>
+                  <MaterialCommunityIcons name="account-group" size={16} color={theme.gold} />
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: theme.gold }}>
                     Lista de alunos atualizada
                   </Text>
                 </View>
               </View>
               
-              <Feather name="chevron-right" size={20} color={theme.subtext} />
+              <Feather name="chevron-right" size={22} color={theme.subtext} />
             </TouchableOpacity>
 
             {/* Info da Rota do Motorista */}
-            {rota && (
-              <View style={[styles.cronogramaContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <View style={styles.cronogramaHeader}>
-                  <View style={[styles.statusBadge, { backgroundColor: theme.gold }]}>
-                    <View style={styles.statusDot} />
-                    <Text style={styles.statusText}>Rota do Dia</Text>
-                  </View>
-                  <View style={[styles.rotaTipoBadge, { backgroundColor: theme.inputBg }]}>
-                    <Text style={[styles.rotaTipoText, { color: theme.subtext }]}>{rota?.tipo}</Text>
-                  </View>
+            <View style={[
+              styles.cronogramaContainer, 
+              { 
+                backgroundColor: theme.card, 
+                borderColor: theme.border,
+                borderRadius: 20,
+                padding: 16,
+                marginTop: 18,
+                borderWidth: 1,
+              }
+            ]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  backgroundColor: theme.gold,
+                  borderRadius: 999,
+                  paddingVertical: 8,
+                  paddingHorizontal: 14,
+                }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: theme.onAccent || '#04201C' }} />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: theme.onAccent || '#04201C' }}>
+                    Rota do Dia
+                  </Text>
                 </View>
-                
-                <View style={[styles.rotaInfoCard, { backgroundColor: theme.inputBg }]}>
-                  <View style={styles.rotaInfoRow}>
-                    <View style={styles.rotaInfoItem}>
-                      <MaterialCommunityIcons name="clock-outline" size={18} color={theme.gold} />
-                      <Text style={[styles.rotaInfoLabel, { color: theme.subtext }]}>Saída</Text>
-                      <Text style={[styles.rotaInfoValue, { color: theme.text }]}>06:30</Text>
-                    </View>
-                    <View style={styles.rotaInfoDivider} />
-                    <View style={styles.rotaInfoItem}>
-                      <MaterialCommunityIcons name="clock-check-outline" size={18} color="#48BB78" />
-                      <Text style={[styles.rotaInfoLabel, { color: theme.subtext }]}>Chegada</Text>
-                      <Text style={[styles.rotaInfoValue, { color: '#48BB78' }]}>07:50</Text>
-                    </View>
-                    <View style={styles.rotaInfoDivider} />
-                    <View style={styles.rotaInfoItem}>
-                      <MaterialCommunityIcons name="account-group" size={18} color="#4299E1" />
-                      <Text style={[styles.rotaInfoLabel, { color: theme.subtext }]}>Alunos</Text>
-                      <Text style={[styles.rotaInfoValue, { color: theme.text }]}>{rota?.alunos?.length || 0}</Text>
-                    </View>
-                  </View>
+                <View style={{
+                  backgroundColor: theme.inset || theme.inputBg,
+                  borderRadius: 10,
+                  paddingVertical: 8,
+                  paddingHorizontal: 14,
+                }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: theme.subtext }}>
+                    {rota?.tipo || 'Ida'}
+                  </Text>
                 </View>
               </View>
-            )}
+              
+              <View style={{
+                marginTop: 14,
+                backgroundColor: theme.inset || theme.inputBg,
+                borderRadius: 16,
+                paddingVertical: 16,
+                paddingHorizontal: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="clock-outline" size={22} color={theme.coral || '#FF8A65'} />
+                  <Text style={{ marginTop: 4, fontSize: 12, color: theme.subtext, fontWeight: '500' }}>Saída</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>06:30</Text>
+                </View>
+                <View style={{ width: 1, height: 48, backgroundColor: theme.border }} />
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="clock-check-outline" size={22} color={theme.ok || '#6EE7B7'} />
+                  <Text style={{ marginTop: 4, fontSize: 12, color: theme.subtext, fontWeight: '500' }}>Chegada</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.ok || '#6EE7B7', marginTop: 2 }}>07:50</Text>
+                </View>
+                <View style={{ width: 1, height: 48, backgroundColor: theme.border }} />
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="account-group" size={22} color={theme.blue || '#7DD3FC'} />
+                  <Text style={{ marginTop: 4, fontSize: 12, color: theme.subtext, fontWeight: '500' }}>Alunos</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>{rota?.alunos?.length || 3}</Text>
+                </View>
+              </View>
+            </View>
           </>
         )}
 
@@ -560,7 +649,7 @@ export default function HomeScreen() {
         <View style={styles.grid}>
           {userRole === 'aluno' && (
             <>
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/listas')}>
+              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/(tabs)/mapa')}>
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(72,187,120,0.1)' }]}>
                   <FontAwesome5 name="route" size={22} color="#48BB78" />
                 </View>
@@ -606,46 +695,184 @@ export default function HomeScreen() {
 
           {userRole === 'motorista' && (
             <>
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/(tabs)/iniciar-rota')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(245,166,35,0.1)' }]}>
-                  <Feather name="navigation" size={22} color={theme.gold} />
+              <TouchableOpacity 
+                style={[
+                  styles.gridItem, 
+                  { 
+                    backgroundColor: theme.card, 
+                    borderColor: theme.border,
+                    borderRadius: 20,
+                    paddingVertical: 18,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                  }
+                ]} 
+                onPress={() => router.push('/(tabs)/iniciar-rota')}
+              >
+                <View style={[
+                  styles.iconCircle, 
+                  { 
+                    width: 52, 
+                    height: 52, 
+                    borderRadius: 26, 
+                    backgroundColor: isDark ? 'rgba(255,138,101,0.18)' : 'rgba(194,65,12,0.14)' 
+                  }
+                ]}>
+                  <Feather name="navigation" size={24} color={theme.coral || '#FF8A65'} />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Iniciar Rota</Text>
+                <Text style={[styles.gridLabel, { color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 10 }]}>
+                  Iniciar Rota
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/(tabs)/presenca')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(72,187,120,0.1)' }]}>
-                  <MaterialCommunityIcons name="checkbox-marked-circle" size={22} color="#48BB78" />
+              <TouchableOpacity 
+                style={[
+                  styles.gridItem, 
+                  { 
+                    backgroundColor: theme.card, 
+                    borderColor: theme.border,
+                    borderRadius: 20,
+                    paddingVertical: 18,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                  }
+                ]} 
+                onPress={() => router.push('/(tabs)/presenca')}
+              >
+                <View style={[
+                  styles.iconCircle, 
+                  { 
+                    width: 52, 
+                    height: 52, 
+                    borderRadius: 26, 
+                    backgroundColor: isDark ? 'rgba(110,231,183,0.16)' : 'rgba(4,120,87,0.14)' 
+                  }
+                ]}>
+                  <Feather name="check-circle" size={24} color={theme.ok || '#6EE7B7'} />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Presença</Text>
+                <Text style={[styles.gridLabel, { color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 10 }]}>
+                  Presença
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/listas')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(66,153,225,0.1)' }]}>
-                  <FontAwesome5 name="users" size={22} color="#4299E1" />
+              <TouchableOpacity 
+                style={[
+                  styles.gridItem, 
+                  { 
+                    backgroundColor: theme.card, 
+                    borderColor: theme.border,
+                    borderRadius: 20,
+                    paddingVertical: 18,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                  }
+                ]} 
+                onPress={() => router.push('/listas')}
+              >
+                <View style={[
+                  styles.iconCircle, 
+                  { 
+                    width: 52, 
+                    height: 52, 
+                    borderRadius: 26, 
+                    backgroundColor: isDark ? 'rgba(125,211,252,0.16)' : 'rgba(3,105,161,0.14)' 
+                  }
+                ]}>
+                  <FontAwesome5 name="users" size={22} color={theme.blue || '#7DD3FC'} />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Alunos</Text>
+                <Text style={[styles.gridLabel, { color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 10 }]}>
+                  Alunos
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/(tabs)/chat')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(159,122,234,0.1)' }]}>
-                  <Feather name="message-circle" size={22} color="#9F7AEA" />
+              <TouchableOpacity 
+                style={[
+                  styles.gridItem, 
+                  { 
+                    backgroundColor: theme.card, 
+                    borderColor: theme.border,
+                    borderRadius: 20,
+                    paddingVertical: 18,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                  }
+                ]} 
+                onPress={() => router.push('/(tabs)/chat')}
+              >
+                <View style={[
+                  styles.iconCircle, 
+                  { 
+                    width: 52, 
+                    height: 52, 
+                    borderRadius: 26, 
+                    backgroundColor: isDark ? 'rgba(45,212,191,0.16)' : 'rgba(15,118,110,0.14)' 
+                  }
+                ]}>
+                  <Feather name="message-circle" size={24} color={theme.gold} />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Chat</Text>
+                <Text style={[styles.gridLabel, { color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 10 }]}>
+                  Chat
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/(tabs)/calendario')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(245,166,35,0.1)' }]}>
-                  <Feather name="calendar" size={22} color={theme.gold} />
+              <TouchableOpacity 
+                style={[
+                  styles.gridItem, 
+                  { 
+                    backgroundColor: theme.card, 
+                    borderColor: theme.border,
+                    borderRadius: 20,
+                    paddingVertical: 18,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                  }
+                ]} 
+                onPress={() => router.push('/(tabs)/calendario')}
+              >
+                <View style={[
+                  styles.iconCircle, 
+                  { 
+                    width: 52, 
+                    height: 52, 
+                    borderRadius: 26, 
+                    backgroundColor: isDark ? 'rgba(45,212,191,0.16)' : 'rgba(15,118,110,0.14)' 
+                  }
+                ]}>
+                  <Feather name="calendar" size={24} color={theme.gold} />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Agenda</Text>
+                <Text style={[styles.gridLabel, { color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 10 }]}>
+                  Agenda
+                </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/ajuda')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(49,130,206,0.1)' }]}>
-                  <Feather name="help-circle" size={22} color="#3182CE" />
+              <TouchableOpacity 
+                style={[
+                  styles.gridItem, 
+                  { 
+                    backgroundColor: theme.card, 
+                    borderColor: theme.border,
+                    borderRadius: 20,
+                    paddingVertical: 18,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                  }
+                ]} 
+                onPress={() => router.push('/ajuda')}
+              >
+                <View style={[
+                  styles.iconCircle, 
+                  { 
+                    width: 52, 
+                    height: 52, 
+                    borderRadius: 26, 
+                    backgroundColor: isDark ? 'rgba(125,211,252,0.16)' : 'rgba(3,105,161,0.14)' 
+                  }
+                ]}>
+                  <Feather name="help-circle" size={24} color={theme.blue || '#7DD3FC'} />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Ajuda</Text>
+                <Text style={[styles.gridLabel, { color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 10 }]}>
+                  Ajuda
+                </Text>
               </TouchableOpacity>
             </>
           )}

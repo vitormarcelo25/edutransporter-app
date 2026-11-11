@@ -9,7 +9,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { Colors } from '../constants/theme';
+import { Colors, getThemeForRole, ThemeColors } from '../constants/theme';
 import { storageHelper, setOnUnauthorized } from '../services/client';
 
 export type UserRole = 'aluno' | 'motorista' | 'admin';
@@ -109,7 +109,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     setIsDark((prev) => !prev);
   };
 
-  const theme = isDark ? Colors.dark : Colors.light;
+  const theme = getThemeForRole(userRole, isDark);
 
   const setAdminRole = () => {
     setUserRole('admin');

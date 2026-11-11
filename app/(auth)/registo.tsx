@@ -355,23 +355,41 @@ export default function Registo() {
                   ))}
                 </View>
 
-                <TextInput 
-                  style={styles.inputSimple} 
-                  placeholder="Criar uma Senha (padrão: 123456)" 
-                  secureTextEntry 
-                  placeholderTextColor={theme.textLight}
-                  value={formData.password}
-                  onChangeText={(v) => handleInputChange('password', v)}
-                />
+                <View style={{ justifyContent: 'center' }}>
+                  <TextInput 
+                    style={[styles.inputSimple, { paddingRight: 50 }]} 
+                    placeholder="Criar uma Senha (padrão: 123456)" 
+                    secureTextEntry={!showPassword}
+                    placeholderTextColor={theme.textLight}
+                    value={formData.password}
+                    onChangeText={(v) => handleInputChange('password', v)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: 18, top: 0, height: 50, justifyContent: 'center' }}
+                    accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textLight} />
+                  </TouchableOpacity>
+                </View>
 
-                <TextInput 
-                  style={styles.inputSimple} 
-                  placeholder="Confirmar Senha" 
-                  secureTextEntry 
-                  placeholderTextColor={theme.textLight}
-                  value={formData.confirmPassword}
-                  onChangeText={(v) => handleInputChange('confirmPassword', v)}
-                />
+                <View style={{ justifyContent: 'center' }}>
+                  <TextInput 
+                    style={[styles.inputSimple, { paddingRight: 50 }]} 
+                    placeholder="Confirmar Senha" 
+                    secureTextEntry={!showPassword}
+                    placeholderTextColor={theme.textLight}
+                    value={formData.confirmPassword}
+                    onChangeText={(v) => handleInputChange('confirmPassword', v)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: 18, top: 0, height: 50, justifyContent: 'center' }}
+                    accessibilityLabel={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textLight} />
+                  </TouchableOpacity>
+                </View>
 
                 <Text style={styles.termsText}>
                   Ao solicitar o acesso, você autoriza a conferência dos seus dados escolares pela administração pública responsável pelo transporte.

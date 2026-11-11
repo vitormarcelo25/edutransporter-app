@@ -634,18 +634,18 @@ export default function Index() {
                     setPassword('');
                   }}
                 >
-                  <Text style={[styles.toggleText, { color: loginType === 'aluno' ? theme.darkBlue : '#FFF' }]}>Aluno</Text>
+                  <Text style={[styles.toggleText, { color: loginType === 'aluno' ? theme.darkBlue : '#94A3B8' }]}>Aluno</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity 
-                  style={[styles.toggleBtn, loginType === 'motorista' && { backgroundColor: theme.gold }]}
+                  style={[styles.toggleBtn, loginType === 'motorista' && { backgroundColor: '#2DD4BF' }]}
                   onPress={() => {
                     setLoginType('motorista');
                     setEmail('');
                     setPassword('');
                   }}
                 >
-                  <Text style={[styles.toggleText, { color: loginType === 'motorista' ? theme.darkBlue : '#FFF' }]}>Motorista</Text>
+                  <Text style={[styles.toggleText, { color: loginType === 'motorista' ? '#04201C' : '#94A3B8' }]}>Motorista</Text>
                 </TouchableOpacity>
               </View>
 
@@ -686,25 +686,35 @@ export default function Index() {
               {/* Linha: Lembrar + Esqueceu senha */}
               <View style={styles.rowSupport}>
                 <TouchableOpacity style={styles.checkArea} onPress={() => setLembrar(!lembrar)}>
-                  <View style={[styles.checkbox, lembrar && styles.checkboxChecked]}>
-                    {lembrar && <Feather name="check" size={12} color="#1A253A" />}
+                  <View style={[
+                    styles.checkbox, 
+                    lembrar && (loginType === 'motorista' ? { backgroundColor: '#2DD4BF', borderColor: '#2DD4BF' } : styles.checkboxChecked)
+                  ]}>
+                    {lembrar && <Feather name="check" size={12} color={loginType === 'motorista' ? '#04201C' : '#1A253A'} />}
                   </View>
                   <Text style={styles.checkText}>Lembrar</Text>
                 </TouchableOpacity>
-                <TouchableOpacity><Text style={styles.forgotText}>Esqueceu a senha</Text></TouchableOpacity>
+                <TouchableOpacity><Text style={[styles.forgotText, loginType === 'motorista' && { color: '#2DD4BF' }]}>Esqueceu a senha</Text></TouchableOpacity>
               </View>
 
-              {/* Botao ENTRAR dourado com borda luminosa 3D */}
+              {/* Botao ENTRAR com cor dinamica por papel (Aluno: Gold, Motorista: Aqua) */}
               <View style={styles.mainBtnWrapper}>
-                <View style={styles.mainBtnGlow} />
-                <View style={styles.mainBtnBorder} />
-                <TouchableOpacity style={styles.mainBtn} onPress={() => handleLogin()} disabled={loading}>
+                <View style={[styles.mainBtnGlow, loginType === 'motorista' && { backgroundColor: '#2DD4BF', shadowColor: '#2DD4BF' }]} />
+                <View style={[styles.mainBtnBorder, loginType === 'motorista' && { borderColor: 'rgba(45, 212, 191, 0.4)' }]} />
+                <TouchableOpacity 
+                  style={[
+                    styles.mainBtn, 
+                    loginType === 'motorista' && { backgroundColor: '#2DD4BF', shadowColor: '#2DD4BF' }
+                  ]} 
+                  onPress={() => handleLogin()} 
+                  disabled={loading}
+                >
                   {loading ? (
                     <Animated.View style={{ transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }}>
-                      <Feather name="loader" size={24} color={theme.darkBlue} />
+                      <Feather name="loader" size={24} color={loginType === 'motorista' ? '#04201C' : theme.darkBlue} />
                     </Animated.View>
                   ) : (
-                    <Text style={styles.mainBtnText}>Entrar</Text>
+                    <Text style={[styles.mainBtnText, loginType === 'motorista' && { color: '#04201C' }]}>Entrar</Text>
                   )}
                 </TouchableOpacity>
               </View>

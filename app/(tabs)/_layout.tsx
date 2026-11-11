@@ -5,7 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useApp } from '../_layout';
 
 export default function TabsLayout() {
-  const { theme, authToken, isLoadingAuth } = useApp();
+  const { theme, authToken, isLoadingAuth, userRole } = useApp();
 
   if (!isLoadingAuth && !authToken) {
     return <Redirect href="/(auth)" />;
@@ -18,7 +18,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.gold,
         tabBarInactiveTintColor: theme.subtext,
         tabBarStyle: {
-          backgroundColor: theme.card,
+          backgroundColor: userRole === 'motorista' ? (theme.header || theme.card) : theme.card,
           borderTopColor: theme.border,
           borderTopWidth: 1,
           paddingVertical: 8,

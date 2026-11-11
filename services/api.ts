@@ -640,6 +640,8 @@ export const login = async (
     let loginOk = false;
 
     try {
+      // API aponta para o Supabase REST: não existe /auth/login lá (o login é o RPC abaixo)
+      if (String(API_BASE_URL).includes('supabase.co')) throw { status: 0, message: 'skip-legacy-login' };
       const response = await apiClient.post<any>(
         '/auth/login',
         {
@@ -1165,15 +1167,29 @@ const resultadoViagemDoDia = async (): Promise<ResultadoDia> => {
 
   if (rotas && rotas.length > 0) {
     let ultimo: ResultadoDia = { viagem: null, rota: rotas[0] };
+    let rpcFalhou = false;
     for (const rota of rotas) {
-      const resp = await apiClient.post<any>('/rpc/viagem_do_dia', { p_rota_id: rota.id });
-      const d = resp.data || {};
-      if (d.resultado === 'ok' && d.viagem) {
-        return { viagem: normalizarViagemDb(d.viagem), rota };
+      try {
+        const resp = await apiClient.post<any>('/rpc/viagem_do_dia', { p_rota_id: rota.id });
+        const d = resp.data || {};
+        if (d.resultado === 'ok' && d.viagem) {
+          return { viagem: normalizarViagemDb(d.viagem), rota };
+        }
+        ultimo = { viagem: null, rota, motivo: d.resultado, feriado: d.feriado };
+      } catch (err: any) {
+        // Função viagem_do_dia ausente/erro no banco: tenta o modo antigo abaixo
+        console.warn('viagem_do_dia indisponível:', err?.message || err);
+        rpcFalhou = true;
+        ultimo = { viagem: null, rota, motivo: 'sem_viagem_hoje' };
       }
-      ultimo = { viagem: null, rota, motivo: d.resultado, feriado: d.feriado };
     }
-    return ultimo;
+    if (!rpcFalhou) return ultimo;
+    const lista = await listarViagens();
+    const hoje = hojeLocalIso();
+    const nomes = rotas.map((r) => textoNorm(r.nome));
+    const daRota = lista.filter((v) => nomes.includes(textoNorm(v.nomeRota)));
+    const achada = daRota.find((v) => String(v.data || '').slice(0, 10) === hoje) || daRota[0];
+    return achada ? { viagem: achada, rota: rotas[0] } : ultimo;
   }
 
   const sessao = await usuarioDaSessao();
@@ -2467,15 +2483,26 @@ export const updatePerfil = async (data: Partial<Usuario>): Promise<PerfilUpdate
   }
 };
 
+export const NOTIFICACOES_STORAGE_KEY = 'edutransporte_notificacoes_config';
+
+export const getNotificacoesLocal = async (): Promise<NotificacoesConfig | null> => {
+  try {
+    const raw = await storageHelper.getItem(NOTIFICACOES_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as NotificacoesConfig) : null;
+  } catch {
+    return null;
+  }
+};
+
 export const updateNotificacoes = async (config: NotificacoesConfig): Promise<PerfilUpdateResponse> => {
+  // A preferência sempre é gravada neste aparelho; o servidor é tentado em seguida.
+  await storageHelper.setItem(NOTIFICACOES_STORAGE_KEY, JSON.stringify(config));
   try {
     const response = await apiClient.put<any>('/api/usuarios/notificacoes', config);
     return { success: true, message: response.data?.message || 'Notificações atualizadas!' };
   } catch (err: any) {
-    return {
-      success: false,
-      message: getApiErrorMessage(err, 'Não foi possível salvar as notificações.'),
-    };
+    console.warn('Notificações salvas só neste aparelho:', err?.message || err);
+    return { success: true, message: 'Preferência salva neste aparelho.' };
   }
 };
 

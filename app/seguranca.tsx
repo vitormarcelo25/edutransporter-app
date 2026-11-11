@@ -59,8 +59,9 @@ export default function Segurança() {
     }
   };
 
-  const InputSenha = ({ label, field }: { label: string; field: 'atual' | 'nova' | 'confirmacao' }) => (
-    <View style={styles.inputGroup}>
+  // Função de renderização (não componente): evita remontar o input a cada tecla
+  const renderInputSenha = (label: string, field: 'atual' | 'nova' | 'confirmacao') => (
+    <View style={styles.inputGroup} key={field}>
       <Text style={[styles.label, { color: theme.subtext }]}>{label}</Text>
       <View style={[styles.inputContainer, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
         <TextInput
@@ -102,9 +103,9 @@ export default function Segurança() {
             Sua senha deve ter pelo menos 6 caracteres
           </Text>
           
-          <InputSenha label="Senha Atual" field="atual" />
-          <InputSenha label="Nova Senha" field="nova" />
-          <InputSenha label="Confirmar Nova Senha" field="confirmacao" />
+          {renderInputSenha('Senha Atual', 'atual')}
+          {renderInputSenha('Nova Senha', 'nova')}
+          {renderInputSenha('Confirmar Nova Senha', 'confirmacao')}
 
           <TouchableOpacity 
             style={[styles.saveBtn, { backgroundColor: theme.gold }]} 

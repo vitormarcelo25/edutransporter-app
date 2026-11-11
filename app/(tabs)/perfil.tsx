@@ -28,7 +28,7 @@ export default function Perfil() {
   const router = useRouter();
   
   // Pegando tudo o que a gente precisa direto do nosso contexto
-  const { isDark, toggleTheme, theme, userRole, userData, clearAuth } = useApp();
+  const { isDark, toggleTheme, theme, userRole, setUserRole, userData, clearAuth } = useApp();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -58,7 +58,10 @@ export default function Perfil() {
             {userRole === 'aluno' ? 'Aluno da Rota ORE 3' : 'Motorista do ORE 3'}
           </Text>
           
-          <TouchableOpacity style={[styles.editBadge, { backgroundColor: isDark ? '#233248' : '#E2E8F0' }]}>
+          <TouchableOpacity
+            style={[styles.editBadge, { backgroundColor: isDark ? '#233248' : '#E2E8F0' }]}
+            onPress={() => router.push('/dados-pessoais')}
+          >
             <Text style={{ color: theme.text, fontSize: 12, fontWeight: 'bold' }}>Editar Perfil</Text>
           </TouchableOpacity>
         </View>

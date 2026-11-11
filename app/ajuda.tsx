@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import {
   StyleSheet, Text, View, TouchableOpacity, SafeAreaView,
-  ScrollView, LayoutAnimation, Platform, UIManager, StatusBar
+  ScrollView, LayoutAnimation, Platform, UIManager, StatusBar, Linking
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
@@ -206,7 +206,7 @@ export default function Ajuda() {
           {/* Contact Support */}
           <TouchableOpacity
             style={[styles.contactBtn, { backgroundColor: theme.gold }]}
-            onPress={() => {}}
+            onPress={() => Linking.openURL('mailto:suporte@edutransporter.com?subject=Suporte%20EduTransporter')}
           >
             <Feather name="mail" size={20} color="#1A253A" style={{ marginRight: 8 }} />
             <Text style={styles.contactBtnText}>Falar com o Suporte</Text>
