@@ -74,12 +74,12 @@ export default function TabsLayout() {
 
       <Tabs.Screen
         name="presenca"
-        options={{ href: null }}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}
       />
 
       <Tabs.Screen
         name="iniciar-rota"
-        options={{ href: null }}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}
       />
     </Tabs>
   );
