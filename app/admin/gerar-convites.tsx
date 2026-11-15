@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
-import { getConvites, createConvite, ConvitesResponse, Convite } from '../../services/api';
+import { getConvites, createConvite, deleteConvite, ConvitesResponse, Convite } from '../../services/api';
 
 export default function GerarConvites() {
   const router = useRouter();
@@ -43,7 +43,31 @@ export default function GerarConvites() {
     if (result.success && result.convite) {
       setConvites([result.convite, ...convites]);
       Alert.alert('Sucesso', `Código gerado: ${result.convite.codigo}`);
+    } else if (!result.success) {
+      Alert.alert('Erro', result.message || 'Não foi possível gerar o convite.');
     }
+  };
+
+  const handleRemoverConvite = (convite: Convite) => {
+    Alert.alert(
+      'Remover Convite',
+      `Deseja remover o código "${convite.codigo}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Remover',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await deleteConvite(convite.codigo || convite.id);
+            if (res.success) {
+              setConvites((prev) => prev.filter((c) => c.codigo !== convite.codigo));
+            } else {
+              Alert.alert('Erro', res.message || 'Não foi possível remover.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (userRole !== 'admin') {
@@ -124,12 +148,19 @@ export default function GerarConvites() {
                 </View>
                 <View style={[
                   styles.statusBadge, 
-                  { backgroundColor: convite.usado ? '#718096' : '#48BB78' }
+                  { backgroundColor: convite.usado ? '#718096' : convite.expirado ? '#F59E0B' : '#48BB78' }
                 ]}>
                   <Text style={styles.statusText}>
-                    {convite.usado ? 'Usado' : 'Ativo'}
+                    {convite.usado ? 'Usado' : convite.expirado ? 'Expirado' : 'Ativo'}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => handleRemoverConvite(convite)}
+                  style={{ marginLeft: 10, padding: 6 }}
+                  accessibilityLabel="Remover convite"
+                >
+                  <Feather name="trash-2" size={18} color="#EF4444" />
+                </TouchableOpacity>
               </View>
             </View>
           ))

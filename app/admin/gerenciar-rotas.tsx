@@ -27,14 +27,51 @@ import { useApp } from '../_layout';
 import {
   getAdminRotas,
   createRota,
+  updateRota,
   deleteRota,
+  getUsuariosAdmin,
   AdminRotasResponse,
+  MotoristaCadastrado,
   Rota,
   Parada,
   PARADAS_PADRAO_CARUARU,
 } from '../../services/api';
 import { Alert } from '@/components/Alert';
 import MapViewComponent from '@/components/MapViewComponent';
+
+const DIAS_SEMANA_OPCOES = [
+  { key: 'Dom', label: 'Dom', idx: '0' },
+  { key: 'Seg', label: 'Seg', idx: '1' },
+  { key: 'Ter', label: 'Ter', idx: '2' },
+  { key: 'Qua', label: 'Qua', idx: '3' },
+  { key: 'Qui', label: 'Qui', idx: '4' },
+  { key: 'Sex', label: 'Sex', idx: '5' },
+  { key: 'Sáb', label: 'Sáb', idx: '6' },
+];
+
+const parseDiasSemanaFromDb = (raw?: string): string[] => {
+  if (!raw) return ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
+  const partes = String(raw)
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const res: string[] = [];
+  partes.forEach((p) => {
+    const porIdx = DIAS_SEMANA_OPCOES.find((d) => d.idx === p);
+    if (porIdx) {
+      res.push(porIdx.key);
+      return;
+    }
+    const norm = p.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').slice(0, 3);
+    const porNome = DIAS_SEMANA_OPCOES.find(
+      (d) => d.key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === norm
+    );
+    if (porNome) res.push(porNome.key);
+  });
+  return res.length > 0 ? Array.from(new Set(res)) : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
+};
+
+const formatarDiasResumo = (raw?: string): string => parseDiasSemanaFromDb(raw).join(', ');
 
 interface CidadeOrigem {
   nome: string;
@@ -136,13 +173,17 @@ export default function GerenciarRotas() {
   // Aba ativa no modal de criação
   const [abaAtiva, setAbaAtiva] = useState<'mapa' | 'dados'>('mapa');
 
-  // Form de criação de rota
+  // Form de criação/edição de rota
+  const [rotaEditandoId, setRotaEditandoId] = useState<string | null>(null);
   const [nomeRota, setNomeRota] = useState('');
   const [cidadeOrigem, setCidadeOrigem] = useState<string>('Caruaru');
   const [destinoSelecionado, setDestinoSelecionado] = useState<DestinoPredefinido>(DESTINOS_PREDEFINIDOS[0]);
   const [escolaDestino, setEscolaDestino] = useState(DESTINOS_PREDEFINIDOS[0].escola);
   const [horario, setHorario] = useState('18:00');
   const [tipo, setTipo] = useState<'Ida' | 'Volta'>('Ida');
+  const [diasSemanaSelecionados, setDiasSemanaSelecionados] = useState<string[]>(['Seg', 'Ter', 'Qua', 'Qui', 'Sex']);
+  const [motoristaCpfSelecionado, setMotoristaCpfSelecionado] = useState<string>('');
+  const [motoristasDisponiveis, setMotoristasDisponiveis] = useState<MotoristaCadastrado[]>([]);
 
   // Paradas georreferenciadas marcadas no mapa
   const [paradasMarcadas, setParadasMarcadas] = useState<Parada[]>([
@@ -188,8 +229,14 @@ export default function GerenciarRotas() {
 
   const loadRotas = async () => {
     setLoading(true);
-    const result: AdminRotasResponse = await getAdminRotas();
+    const [result, usuarios] = await Promise.all([
+      getAdminRotas(),
+      getUsuariosAdmin().catch(() => null),
+    ]);
     setLoading(false);
+    if (usuarios?.success && Array.isArray(usuarios.motoristas)) {
+      setMotoristasDisponiveis(usuarios.motoristas);
+    }
     if (result.success && result.rotas) {
       setRotas(result.rotas);
     } else {
@@ -198,14 +245,17 @@ export default function GerenciarRotas() {
     }
   };
 
-  // Abre modal resetando estado
+  // Abre modal resetando estado para criação
   const handleAbrirModalCriar = () => {
+    setRotaEditandoId(null);
     setCidadeOrigem('Caruaru');
     setDestinoSelecionado(DESTINOS_PREDEFINIDOS[0]);
     setEscolaDestino(DESTINOS_PREDEFINIDOS[0].escola);
     setNomeRota(`Linha 0${rotas.length + 1} - Caruaru ➔ ${DESTINOS_PREDEFINIDOS[0].nome}`);
     setHorario('18:00');
     setTipo('Ida');
+    setDiasSemanaSelecionados(['Seg', 'Ter', 'Qua', 'Qui', 'Sex']);
+    setMotoristaCpfSelecionado('');
     setParadasMarcadas([
       {
         id: `p-${Date.now()}-1`,
@@ -226,6 +276,45 @@ export default function GerenciarRotas() {
     setNomePontoTemporario('');
     setAbaAtiva('mapa');
     setModalCriarVisivel(true);
+  };
+
+  // Abre modal preenchido para edição de rota existente
+  const handleAbrirModalEditar = (rota: Rota) => {
+    setRotaEditandoId(rota.id);
+    setNomeRota(rota.nome || '');
+    setEscolaDestino(rota.escola || '');
+    const destinoMatch = DESTINOS_PREDEFINIDOS.find(
+      (d) =>
+        d.escola.toLowerCase() === String(rota.escola || '').toLowerCase() ||
+        String(rota.escola || '').toLowerCase().includes(d.nome.toLowerCase())
+    );
+    if (destinoMatch) {
+      setDestinoSelecionado(destinoMatch);
+    }
+    setHorario(rota.horario || '18:00');
+    setTipo(rota.tipo || 'Ida');
+    setDiasSemanaSelecionados(parseDiasSemanaFromDb(rota.diasSemana));
+    setMotoristaCpfSelecionado(String(rota.motoristaCpf || '').replace(/\D/g, ''));
+    const paradasAtuais = Array.isArray(rota.paradas) ? rota.paradas : [];
+    setParadasMarcadas(paradasAtuais);
+    if (paradasAtuais[0]?.latitude && paradasAtuais[0]?.longitude) {
+      setMapRegion({
+        latitude: paradasAtuais[0].latitude,
+        longitude: paradasAtuais[0].longitude,
+        latitudeDelta: 0.04,
+        longitudeDelta: 0.04,
+      });
+    }
+    setPontoTemporario(null);
+    setNomePontoTemporario('');
+    setAbaAtiva('dados');
+    setModalCriarVisivel(true);
+  };
+
+  const toggleDiaSemana = (diaKey: string) => {
+    setDiasSemanaSelecionados((prev) =>
+      prev.includes(diaKey) ? prev.filter((d) => d !== diaKey) : [...prev, diaKey]
+    );
   };
 
   // Seleciona cidade de origem rápida
@@ -331,9 +420,14 @@ export default function GerenciarRotas() {
       return;
     }
 
+    if (diasSemanaSelecionados.length === 0) {
+      Alert.alert('Atenção', 'Selecione pelo menos 1 dia da semana em que a rota circula.');
+      return;
+    }
+
     setSalvando(true);
 
-    // Constrói a lista final com as paradas e o ponto de destino final (★)
+    // Constrói a lista final com as paradas e o ponto de destino final (★) na criação
     const paradasFinais: Parada[] = [...paradasMarcadas];
     const jaTemDestino = paradasFinais.some(
       (p) =>
@@ -342,7 +436,7 @@ export default function GerenciarRotas() {
         p.nome.toLowerCase().includes(destinoSelecionado.nome.toLowerCase())
     );
 
-    if (!jaTemDestino) {
+    if (!rotaEditandoId && !jaTemDestino) {
       paradasFinais.push({
         id: `dest-${Date.now()}`,
         nome: `${destinoSelecionado.nome} (Destino Final)`,
@@ -352,28 +446,41 @@ export default function GerenciarRotas() {
       });
     }
 
-    const res = await createRota({
-      nome: nomeRota.trim(),
-      escola: escolaDestino.trim(),
-      horario: horario.trim() || '18:00',
-      tipo,
-      paradas: paradasFinais,
-      diasSemana: ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'],
-      alunosIds: [],
-      motoristaId: '',
-    });
+    const res = rotaEditandoId
+      ? await updateRota(rotaEditandoId, {
+          nome: nomeRota.trim(),
+          escola: escolaDestino.trim(),
+          horario: horario.trim() || '18:00',
+          tipo,
+          paradas: paradasFinais,
+          diasSemana: diasSemanaSelecionados,
+          motoristaId: motoristaCpfSelecionado,
+        })
+      : await createRota({
+          nome: nomeRota.trim(),
+          escola: escolaDestino.trim(),
+          horario: horario.trim() || '18:00',
+          tipo,
+          paradas: paradasFinais,
+          diasSemana: diasSemanaSelecionados,
+          alunosIds: [],
+          motoristaId: motoristaCpfSelecionado,
+        });
 
     setSalvando(false);
 
     if (res.success) {
       Alert.alert(
-        'Rota Criada com Sucesso!',
-        `A rota "${nomeRota}" com ${paradasFinais.length} paradas marcadas no mapa foi registrada. Os alunos já podem visualizar o trajeto completo no aplicativo.`
+        rotaEditandoId ? 'Rota Atualizada!' : 'Rota Criada com Sucesso!',
+        rotaEditandoId
+          ? `As alterações da rota "${nomeRota}" foram salvas.`
+          : `A rota "${nomeRota}" com ${paradasFinais.length} paradas marcadas no mapa foi registrada. Os alunos já podem visualizar o trajeto completo no aplicativo.`
       );
       setModalCriarVisivel(false);
+      setRotaEditandoId(null);
       loadRotas();
     } else {
-      Alert.alert('Erro ao Salvar', res.message || 'Não foi possível cadastrar a rota.');
+      Alert.alert('Erro ao Salvar', res.message || 'Não foi possível salvar a rota.');
     }
   };
 
@@ -504,8 +611,17 @@ export default function GerenciarRotas() {
                   </View>
                   <TouchableOpacity
                     style={styles.deleteBtn}
+                    onPress={() => handleAbrirModalEditar(rota)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityLabel="Editar rota"
+                  >
+                    <Feather name="edit-2" size={18} color={theme.gold} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.deleteBtn}
                     onPress={() => handleDelete(rota.id)}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityLabel="Excluir rota"
                   >
                     <Feather name="trash-2" size={18} color="#EF4444" />
                   </TouchableOpacity>
@@ -526,6 +642,23 @@ export default function GerenciarRotas() {
                     <Feather name="map-pin" size={14} color={theme.gold} />
                     <Text style={[styles.detailText, { color: theme.gold }]}>
                       {rota.paradas?.length || 0} paradas
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.rotaDetails, { marginTop: 8, flexWrap: 'wrap', gap: 8 }]}>
+                  <View style={styles.detailItem}>
+                    <Feather name="calendar" size={13} color={theme.subtext} />
+                    <Text style={[styles.detailText, { color: theme.subtext, fontSize: 11 }]}>
+                      {formatarDiasResumo(rota.diasSemana)}
+                    </Text>
+                  </View>
+                  <View style={styles.detailItem}>
+                    <Feather name="user" size={13} color={theme.subtext} />
+                    <Text style={[styles.detailText, { color: theme.subtext, fontSize: 11 }]} numberOfLines={1}>
+                      {motoristasDisponiveis.find(
+                        (m) => String(m.cpf).replace(/\D/g, '') === String(rota.motoristaCpf || '').replace(/\D/g, '')
+                      )?.nome || (rota.motoristaCpf ? rota.motoristaCpf : 'Sem motorista')}
                     </Text>
                   </View>
                 </View>
@@ -569,9 +702,11 @@ export default function GerenciarRotas() {
                   <FontAwesome5 name="route" size={16} color={theme.gold} />
                 </View>
                 <View>
-                  <Text style={[styles.modalTitle, { color: theme.text }]}>Nova Linha / Rota</Text>
+                  <Text style={[styles.modalTitle, { color: theme.text }]}>
+                    {rotaEditandoId ? 'Editar Linha / Rota' : 'Nova Linha / Rota'}
+                  </Text>
                   <Text style={[styles.modalSubtitle, { color: theme.subtext }]}>
-                    Marque paradas no mapa ou selecione ruas e cidades
+                    Marque paradas no mapa ou ajuste horários, dias e motorista
                   </Text>
                 </View>
               </View>
@@ -907,6 +1042,98 @@ export default function GerenciarRotas() {
                     </View>
                   </View>
 
+                  <Text style={[styles.inputLabel, { color: theme.subtext, marginTop: 14 }]}>
+                    Dias de Circulação:
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                    {DIAS_SEMANA_OPCOES.map((dia) => {
+                      const selecionado = diasSemanaSelecionados.includes(dia.key);
+                      return (
+                        <TouchableOpacity
+                          key={dia.key}
+                          onPress={() => toggleDiaSemana(dia.key)}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            backgroundColor: selecionado ? theme.gold : theme.inputBg,
+                            borderColor: selecionado ? theme.gold : theme.border,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 'bold',
+                              color: selecionado ? '#1A253A' : theme.text,
+                            }}
+                          >
+                            {dia.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={[styles.inputLabel, { color: theme.subtext, marginTop: 14 }]}>
+                    Motorista Responsável:
+                  </Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                  >
+                    <TouchableOpacity
+                      onPress={() => setMotoristaCpfSelecionado('')}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        backgroundColor: !motoristaCpfSelecionado ? theme.gold : theme.inputBg,
+                        borderColor: !motoristaCpfSelecionado ? theme.gold : theme.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 'bold',
+                          color: !motoristaCpfSelecionado ? '#1A253A' : theme.text,
+                        }}
+                      >
+                        Sem motorista
+                      </Text>
+                    </TouchableOpacity>
+                    {motoristasDisponiveis.map((mot) => {
+                      const cpfLimpo = String(mot.cpf || '').replace(/\D/g, '');
+                      const selecionado = cpfLimpo !== '' && cpfLimpo === motoristaCpfSelecionado;
+                      return (
+                        <TouchableOpacity
+                          key={mot.id}
+                          onPress={() => setMotoristaCpfSelecionado(cpfLimpo)}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            backgroundColor: selecionado ? theme.gold : theme.inputBg,
+                            borderColor: selecionado ? theme.gold : theme.border,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 'bold',
+                              color: selecionado ? '#1A253A' : theme.text,
+                            }}
+                          >
+                            {mot.nome}{mot.placa ? ` (${mot.placa})` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
                   {/* Adicionar parada por nome de rua */}
                   <Text style={[styles.inputLabel, { color: theme.subtext, marginTop: 14 }]}>
                     Adicionar Parada pelo Nome da Rua:
@@ -964,7 +1191,9 @@ export default function GerenciarRotas() {
                   <ActivityIndicator size="small" color="#1A253A" />
                 ) : (
                   <Text style={styles.btnSalvarText}>
-                    Salvar Rota ({paradasMarcadas.length} paradas)
+                    {rotaEditandoId
+                      ? `Salvar Alterações (${paradasMarcadas.length})`
+                      : `Salvar Rota (${paradasMarcadas.length} paradas)`}
                   </Text>
                 )}
               </TouchableOpacity>

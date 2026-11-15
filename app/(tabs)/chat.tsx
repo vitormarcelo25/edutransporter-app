@@ -31,8 +31,11 @@ import {
   limparChatRota, 
   getRotasParaChat,
   ChatMessage, 
+  ChatRotaResumo,
   Rota 
 } from '../../services/api';
+
+const normCpf = (val?: string) => String(val || '').replace(/\D/g, '');
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -40,7 +43,8 @@ export default function ChatScreen() {
 
   const [rota, setRota] = useState<Rota | null>(null);
   const [rotaIdAtiva, setRotaIdAtiva] = useState<string>('');
-  const [rotasDisponiveis, setRotasDisponiveis] = useState<Array<{ id: string; nome: string; escola?: string; alunosQtd: number }>>([]);
+  const [rotaFixaIdAtiva, setRotaFixaIdAtiva] = useState<string>('');
+  const [rotasDisponiveis, setRotasDisponiveis] = useState<ChatRotaResumo[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -59,17 +63,41 @@ export default function ChatScreen() {
     try {
       setLoading(true);
       const res = await getRotaDoDia(userRole === 'aluno' ? userData?.id : undefined);
+      let idAtivo = '';
+      let fixaAtiva = '';
+
       if (res.success && res.rota) {
         setRota(res.rota);
-        const idAtivo = res.rota.id || res.rota.nome;
+        idAtivo = res.rota.id || res.rota.nome;
+        fixaAtiva = res.rota.rotaId || '';
         setRotaIdAtiva(idAtivo);
-        await carregarMensagens(idAtivo);
+        setRotaFixaIdAtiva(fixaAtiva);
+        await carregarMensagens(idAtivo, false, fixaAtiva);
       }
 
       // Se for admin ou motorista, busca lista de todas as rotas para permitir alternar
       if (userRole === 'admin' || userRole === 'motorista') {
         const todas = await getRotasParaChat();
         setRotasDisponiveis(todas);
+        if (!idAtivo && todas.length > 0) {
+          const primeira = todas[0];
+          const primeiroId = primeira.id || primeira.nome;
+          const primeiraFixa = primeira.rotaId || '';
+          setRotaIdAtiva(primeiroId);
+          setRotaFixaIdAtiva(primeiraFixa);
+          setRota({
+            id: primeira.id,
+            rotaId: primeira.rotaId,
+            nome: primeira.nome,
+            escola: primeira.escola || '',
+            horario: primeira.horario || '',
+            tipo: 'Ida',
+            alunos: [],
+            status: 'agendada',
+            paradas: [],
+          });
+          await carregarMensagens(primeiroId, false, primeiraFixa);
+        }
       }
     } catch (err) {
       console.warn('Erro ao carregar rota do chat:', err);
@@ -79,11 +107,12 @@ export default function ChatScreen() {
   }, [userRole, userData?.id]);
 
   // Carrega mensagens da rota ativa
-  const carregarMensagens = async (idDaRota: string, silencioso = false) => {
-    if (!idDaRota) return;
+  const carregarMensagens = async (idDaRota: string, silencioso = false, rotaFixaId?: string) => {
+    const fixa = rotaFixaId !== undefined ? rotaFixaId : rotaFixaIdAtiva;
+    if (!idDaRota && !fixa) return;
     if (!silencioso) setLoadingMessages(true);
     try {
-      const msgs = await getMensagensRota(idDaRota);
+      const msgs = await getMensagensRota(idDaRota, fixa || undefined);
       setMessages(msgs);
     } catch (err) {
       console.warn('Erro ao buscar mensagens:', err);
@@ -99,16 +128,16 @@ export default function ChatScreen() {
     }, [carregarRotaInicial])
   );
 
-  // Polling resiliente de atualização de mensagens (para sincronização offline / local)
+  // Polling resiliente de atualização de mensagens (para sincronização em tempo real)
   useEffect(() => {
-    if (!rotaIdAtiva) return;
+    if (!rotaIdAtiva && !rotaFixaIdAtiva) return;
 
     const interval = setInterval(() => {
-      carregarMensagens(rotaIdAtiva, true);
+      carregarMensagens(rotaIdAtiva, true, rotaFixaIdAtiva);
     }, 3500);
 
     return () => clearInterval(interval);
-  }, [rotaIdAtiva]);
+  }, [rotaIdAtiva, rotaFixaIdAtiva]);
 
   // Rola até o final ao receber novas mensagens
   useEffect(() => {
@@ -124,7 +153,7 @@ export default function ChatScreen() {
   // Enviar mensagem
   const handleEnviarMensagem = async (textoPersonalizado?: string) => {
     const texto = (textoPersonalizado || inputMessage).trim();
-    if (!texto || !rotaIdAtiva || sending) return;
+    if (!texto || (!rotaIdAtiva && !rotaFixaIdAtiva) || sending) return;
 
     setSending(true);
     setInputMessage('');
@@ -139,10 +168,14 @@ export default function ChatScreen() {
         autorRole: userRole || 'aluno',
         texto: texto,
         rotaNome: rota?.nome,
+        rotaFixaId: rotaFixaIdAtiva || undefined,
       });
 
       if (res.success && res.mensagem) {
-        setMessages((prev) => [...prev, res.mensagem!]);
+        const msgNova = res.mensagem;
+        setMessages((prev) =>
+          prev.some((m) => m.id === msgNova.id) ? prev : [...prev, msgNova]
+        );
       } else {
         Alert.alert('Aviso', res.message || 'Não foi possível enviar a mensagem.');
       }
@@ -156,7 +189,12 @@ export default function ChatScreen() {
 
   // Excluir mensagem (somente o autor ou admin)
   const handleExcluirMensagem = (mensagem: ChatMessage) => {
-    const souAutor = mensagem.autorId === userData?.id || mensagem.autorNome === userData?.nome;
+    const meuCpf = normCpf(userData?.id);
+    const msgCpf = normCpf(mensagem.autorId);
+    const souAutor =
+      mensagem.autorId === userData?.id ||
+      (meuCpf.length >= 5 && meuCpf === msgCpf) ||
+      mensagem.autorNome === userData?.nome;
     const souAdmin = userRole === 'admin';
 
     if (!souAutor && !souAdmin) return;
@@ -170,7 +208,7 @@ export default function ChatScreen() {
           text: 'Excluir', 
           style: 'destructive', 
           onPress: async () => {
-            await excluirMensagemRota(rotaIdAtiva, mensagem.id);
+            await excluirMensagemRota(rotaIdAtiva, mensagem.id, rotaFixaIdAtiva || undefined);
             setMessages((prev) => prev.filter((m) => m.id !== mensagem.id));
           }
         }
@@ -179,13 +217,29 @@ export default function ChatScreen() {
   };
 
   // Alternar rota (para Motorista ou Admin)
-  const handleSelecionarRota = async (r: { id: string; nome: string; escola?: string }) => {
+  const handleSelecionarRota = async (r: ChatRotaResumo) => {
     setSelectorModalVisible(false);
     setLoading(true);
     const novoId = r.id || r.nome;
+    const novaFixa = r.rotaId || '';
     setRotaIdAtiva(novoId);
-    setRota((prev) => prev ? { ...prev, id: r.id, nome: r.nome, escola: r.escola || prev.escola } : null);
-    await carregarMensagens(novoId);
+    setRotaFixaIdAtiva(novaFixa);
+    setRota((prev) =>
+      prev
+        ? { ...prev, id: r.id, rotaId: r.rotaId, nome: r.nome, escola: r.escola || prev.escola, horario: r.horario || prev.horario }
+        : {
+            id: r.id,
+            rotaId: r.rotaId,
+            nome: r.nome,
+            escola: r.escola || '',
+            horario: r.horario || '',
+            tipo: 'Ida',
+            alunos: [],
+            status: 'agendada',
+            paradas: [],
+          }
+    );
+    await carregarMensagens(novoId, false, novaFixa);
     setLoading(false);
   };
 
@@ -200,7 +254,7 @@ export default function ChatScreen() {
           text: 'Limpar Tudo',
           style: 'destructive',
           onPress: async () => {
-            await limparChatRota(rotaIdAtiva);
+            await limparChatRota(rotaIdAtiva, rotaFixaIdAtiva || undefined);
             setMessages([]);
             setInfoModalVisible(false);
           }
@@ -227,7 +281,12 @@ export default function ChatScreen() {
 
   // Renderização individual de cada mensagem
   const renderMessageItem = ({ item }: { item: ChatMessage }) => {
-    const isMe = item.autorId === userData?.id || item.autorNome === userData?.nome;
+    const meuCpf = normCpf(userData?.id);
+    const msgCpf = normCpf(item.autorId);
+    const isMe =
+      item.autorId === userData?.id ||
+      (meuCpf.length >= 5 && meuCpf === msgCpf) ||
+      item.autorNome === userData?.nome;
     const isMotorista = item.autorRole === 'motorista';
     const isAdmin = item.autorRole === 'admin';
 
@@ -539,10 +598,13 @@ export default function ChatScreen() {
 
             <ScrollView style={{ maxHeight: 320, marginTop: 10 }}>
               {rotasDisponiveis.map((r) => {
-                const isAtiva = (r.id === rotaIdAtiva) || (r.nome === rotaIdAtiva);
+                const isAtiva =
+                  Boolean(r.rotaId && r.rotaId === rotaFixaIdAtiva) ||
+                  r.id === rotaIdAtiva ||
+                  r.nome === rotaIdAtiva;
                 return (
                   <TouchableOpacity
-                    key={r.id}
+                    key={r.rotaId || r.id}
                     style={[styles.rotaSelectItem, isAtiva && styles.rotaSelectItemActive]}
                     onPress={() => handleSelecionarRota(r)}
                   >

@@ -8,26 +8,33 @@
  * Lista de alunos com presença
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useApp } from './_layout';
-import { getRotaDoDia, iniciarRota, encerrarRota, updateGpsPosition, Rota, RotaResponse } from '@/services/api';
-import * as Location from 'expo-location';
+import { getRotaDoDia, iniciarRota, encerrarRota, Rota, RotaResponse } from '@/services/api';
 import { Alert } from '@/components/Alert';
 
 export default function IniciarRota() {
   const router = useRouter();
   const voltar = () => router.navigate('/(tabs)/home');
-  const { theme, userRole } = useApp();
+  const {
+    theme,
+    userRole,
+    gpsTrackingActive,
+    activeTripRotaId,
+    lastGpsUpdate,
+    gpsError,
+    startTripGps,
+    stopTripGps,
+  } = useApp();
   const [loading, setLoading] = useState(true);
   const [rota, setRota] = useState<Rota | null>(null);
   const [error, setError] = useState('');
   const [iniciada, setiniciada] = useState(false);
   const [encerrada, setEncerrada] = useState(false);
-  const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadRota = async () => {
     setLoading(true);
@@ -39,6 +46,12 @@ export default function IniciarRota() {
       if (result.rota.status === 'em_andamento') {
         setiniciada(true);
         setEncerrada(false);
+        if (
+          userRole === 'motorista' &&
+          (!gpsTrackingActive || activeTripRotaId !== result.rota.id)
+        ) {
+          startTripGps(result.rota.id).catch(() => {});
+        }
       } else if (result.rota.status === 'encerrada') {
         setiniciada(false);
         setEncerrada(true);
@@ -53,102 +66,7 @@ export default function IniciarRota() {
 
   useEffect(() => {
     loadRota();
-    return () => {
-      if (gpsIntervalRef.current) {
-        clearInterval(gpsIntervalRef.current);
-      }
-    };
   }, []);
-
-  // Função para obter permissão de localização
-  const requestLocationPermission = async () => {
-    try {
-      if (Platform.OS === 'web') {
-        // Simple check for geolocation API in browser
-        if (!navigator.geolocation) {
-          return false;
-        }
-      }
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      return status === 'granted';
-    } catch (e) {
-      console.log('Erro ao obter permissão de localização:', e);
-      return false;
-    }
-  };
-
-  // Função para capturar posição atual de forma multiplataforma
-  const getCurrentGpsCoords = async (): Promise<{ latitude: number; longitude: number } | null> => {
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
-      return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-          () => resolve(null),
-          { enableHighAccuracy: true, timeout: 8000 }
-        );
-      });
-    }
-
-    try {
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      return {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      };
-    } catch {
-      return null;
-    }
-  };
-
-  // Função para iniciar o tracking GPS
-  const startGpsTracking = async () => {
-    let hasPermission = false;
-    try {
-      hasPermission = await requestLocationPermission();
-    } catch (err) {
-      console.log('Falha ao checar permissões:', err);
-    }
-
-    if (!hasPermission && Platform.OS !== 'web') {
-      Alert.alert('Aviso', 'Permissão de localização não concedida. O rastreamento ao vivo do ônibus precisa do GPS ativado.');
-    }
-
-    // Dispara uma sincronização imediata
-    const initialCoords = await getCurrentGpsCoords();
-    if (initialCoords && rota) {
-      await updateGpsPosition({
-        rotaId: rota.id,
-        position: {
-          latitude: initialCoords.latitude,
-          longitude: initialCoords.longitude,
-          timestamp: Date.now(),
-        },
-      });
-    }
-
-    // Envia posições reais do GPS a cada 5 segundos
-    gpsIntervalRef.current = setInterval(async () => {
-      try {
-        if (!rota) return;
-        const coords = await getCurrentGpsCoords();
-        if (coords) {
-          const res = await updateGpsPosition({
-            rotaId: rota.id,
-            position: {
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-              timestamp: Date.now(),
-            },
-          });
-          if (!res.success) console.log('Falha ao sincronizar GPS:', res.message);
-        }
-      } catch (err) {
-        console.log('Erro ao ler GPS:', err);
-      }
-    }, 5000);
-  };
 
   const handleIniciarRota = async () => {
     if (!rota) return;
@@ -164,8 +82,15 @@ export default function IniciarRota() {
             const result = await iniciarRota(rota.id);
             if (result.success) {
               setiniciada(true);
-              startGpsTracking();
-              Alert.alert('Sucesso', 'Rota iniciada! O GPS está sendo rastreado.');
+              const gpsRes = await startTripGps(rota.id);
+              if (!gpsRes.permissionGranted && Platform.OS !== 'web') {
+                Alert.alert(
+                  'Viagem iniciada (GPS pendente)',
+                  'A viagem foi iniciada, mas a permissão de localização não foi concedida. Ative o GPS para os alunos acompanharem o ônibus.'
+                );
+              } else {
+                Alert.alert('Sucesso', 'Rota iniciada! O GPS está sendo transmitido continuamente.');
+              }
             } else {
               Alert.alert('Erro', result.message || 'Erro ao iniciar rota');
             }
@@ -186,13 +111,10 @@ export default function IniciarRota() {
         { 
           text: 'Encerrar', 
           onPress: async () => {
-            if (gpsIntervalRef.current) {
-              clearInterval(gpsIntervalRef.current);
-              gpsIntervalRef.current = null;
-            }
-            
+            stopTripGps();
             const result = await encerrarRota(rota.id);
             if (result.success) {
+              setiniciada(false);
               setEncerrada(true);
               Alert.alert('Sucesso', 'Rota encerrada!');
             } else {
@@ -287,10 +209,27 @@ export default function IniciarRota() {
             </View>
 
             {/* Status Badge */}
-            <View style={[styles.statusBadge, { backgroundColor: iniciada ? '#48BB78' : encerrada ? '#718096' : theme.gold }]}>
-              <Text style={styles.statusText}>
-                {iniciada ? 'Em Andamento' : encerrada ? 'Encerrada' : 'Agendada'}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 15 }}>
+              <View style={[styles.statusBadge, { marginTop: 0, backgroundColor: iniciada ? '#48BB78' : encerrada ? '#718096' : theme.gold }]}>
+                <Text style={styles.statusText}>
+                  {iniciada ? 'Em Andamento' : encerrada ? 'Encerrada' : 'Agendada'}
+                </Text>
+              </View>
+
+              {iniciada && !encerrada && (
+                <View style={[styles.statusBadge, { marginTop: 0, flexDirection: 'row', alignItems: 'center', backgroundColor: gpsError ? '#F59E0B20' : '#48BB7820', borderWidth: 1, borderColor: gpsError ? '#F59E0B' : '#48BB78' }]}>
+                  <Feather name={gpsError ? 'alert-triangle' : 'radio'} size={13} color={gpsError ? '#F59E0B' : '#48BB78'} style={{ marginRight: 6 }} />
+                  <Text style={[styles.statusText, { fontSize: 12, color: gpsError ? '#F59E0B' : '#48BB78' }]}>
+                    {gpsError
+                      ? gpsError
+                      : gpsTrackingActive && lastGpsUpdate
+                        ? `GPS ativo (${new Date(lastGpsUpdate).toLocaleTimeString('pt-BR')})`
+                        : gpsTrackingActive
+                          ? 'GPS ativo em segundo plano'
+                          : 'GPS aguardando sinal'}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
 

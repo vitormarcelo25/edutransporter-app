@@ -344,6 +344,7 @@ export interface Convite {
   id: string;
   codigo: string;
   usado: boolean;
+  expirado?: boolean;
   criadoEm: string;
   expiraEm: string;
 }
@@ -909,7 +910,7 @@ export const login = async (
   }
 };
 
-/** Login do administrador. Valida contra o código mestre ou convites gerados. */
+/** Login do administrador. Valida contra o código mestre ou convites ativos no Supabase. */
 export const adminLogin = async (codigo: string): Promise<LoginResponse> => {
   const codLimpo = (codigo || '').trim();
   if (!codLimpo) {
@@ -918,8 +919,8 @@ export const adminLogin = async (codigo: string): Promise<LoginResponse> => {
 
   const adminCodeOficial = process.env.EXPO_PUBLIC_ADMIN_CODE || 'admin26';
 
-  // 1. Validação contra o código oficial
-  if (codLimpo === adminCodeOficial || codLimpo === 'admin26' || codLimpo.toLowerCase() === 'admin') {
+  // 1. Validação contra a chave mestra oficial
+  if (codLimpo === adminCodeOficial || codLimpo === 'admin26') {
     const userAdmin = {
       id: 'admin',
       nome: 'Administrador Prefeitura',
@@ -940,40 +941,76 @@ export const adminLogin = async (codigo: string): Promise<LoginResponse> => {
     };
   }
 
-  // 2. Validação contra convites gerados pelo admin
+  // 2. Validação remota contra convites gerados no Supabase (tabela convite)
   try {
-    const rawConvites = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
-    if (rawConvites) {
-      const convites: Convite[] = JSON.parse(rawConvites);
-      const conviteValido = convites.find(
-        (c) => c.codigo.trim().toLowerCase() === codLimpo.toLowerCase() && !c.usado
-      );
-      if (conviteValido) {
-        const userAdmin = {
-          id: `admin_${conviteValido.id}`,
-          nome: 'Administrador Convidado',
-          email: 'admin@edutransporte.pe.gov.br',
-          role: 'admin' as const,
-        };
-
-        try {
-          await storageHelper.setItem('user_data_v2', JSON.stringify(userAdmin));
-        } catch {}
-
-        return {
-          success: true,
-          token: `jwt_admin_convite_${Date.now()}`,
-          user: userAdmin,
-          status: 'aprovado',
-          message: 'Acesso administrativo autorizado via convite.',
-        };
+    const resp = await apiClient.get<any[]>(
+      `/convite?codigo=ilike.${encodeURIComponent(codLimpo)}&select=*`
+    );
+    const conviteDb = Array.isArray(resp.data) ? resp.data[0] : null;
+    if (conviteDb) {
+      if (conviteDb.usado) {
+        return { success: false, message: 'Este código de convite já foi utilizado.' };
       }
+      if (conviteDb.expira_em && new Date(conviteDb.expira_em).getTime() <= Date.now()) {
+        return { success: false, message: 'Este código de convite expirou (validade de 24h).' };
+      }
+
+      // Marca o convite como usado no servidor para impedir reuso em outro aparelho
+      await apiClient
+        .patch(`/convite?codigo=eq.${encodeURIComponent(String(conviteDb.codigo))}`, { usado: true })
+        .catch(() => {});
+
+      const userAdmin = {
+        id: `admin_${conviteDb.codigo}`,
+        nome: 'Administrador Convidado',
+        email: 'admin@edutransporte.pe.gov.br',
+        role: 'admin' as const,
+      };
+
+      try {
+        await storageHelper.setItem('user_data_v2', JSON.stringify(userAdmin));
+      } catch {}
+
+      return {
+        success: true,
+        token: `jwt_admin_convite_${Date.now()}`,
+        user: userAdmin,
+        status: 'aprovado',
+        message: 'Acesso administrativo autorizado via convite.',
+      };
     }
-  } catch {}
+  } catch {
+    // Offline: fallback para cache local apenas se o servidor não respondeu
+    try {
+      const rawConvites = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
+      if (rawConvites) {
+        const convites: Convite[] = JSON.parse(rawConvites);
+        const conviteValido = convites.find(
+          (c) => c.codigo.trim().toLowerCase() === codLimpo.toLowerCase() && !c.usado
+        );
+        if (conviteValido) {
+          const userAdmin = {
+            id: `admin_${conviteValido.id}`,
+            nome: 'Administrador Convidado',
+            email: 'admin@edutransporte.pe.gov.br',
+            role: 'admin' as const,
+          };
+          await storageHelper.setItem('user_data_v2', JSON.stringify(userAdmin)).catch(() => {});
+          return {
+            success: true,
+            token: `jwt_admin_convite_${Date.now()}`,
+            user: userAdmin,
+            status: 'aprovado',
+            message: 'Acesso administrativo autorizado via convite.',
+          };
+        }
+      }
+    } catch {}
+  }
 
   return {
     success: false,
-    message: 'Chave de acesso incorreta. Verifique o código e tente novamente.',
+    message: 'Chave de acesso incorreta ou convite inválido. Verifique o código e tente novamente.',
   };
 };
 
@@ -1496,19 +1533,21 @@ export const cancelarPresenca = async (alunoId: string): Promise<ConfirmacaoResp
 
 export const marcarPresenca = async (alunoId: string, presente: boolean): Promise<PresencaResponse> => {
   try {
-    const viagem = await obterViagemAtual();
-    if (viagem) {
-      await salvarPresencaDb(viagem.id, alunoId, presente);
+    const dia = await resultadoViagemDoDia();
+    const viagem = dia.viagem;
+    if (!viagem) {
+      return { success: false, message: explicarSemViagem(dia) };
     }
+    await salvarPresencaDb(viagem.id, alunoId, presente);
     return {
       success: true,
       message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
     };
   } catch (err: any) {
-    console.warn('Erro ao marcar presença no Supabase, mantendo status local:', err?.message || err);
+    console.warn('Erro ao marcar presença no Supabase:', err?.message || err);
     return {
-      success: true,
-      message: presente ? 'Presença confirmada!' : 'Aluno marcado como ausente',
+      success: false,
+      message: getApiErrorMessage(err, 'Não foi possível salvar a presença no servidor.'),
     };
   }
 };
@@ -2225,6 +2264,73 @@ export const deleteRota = async (rotaId: string): Promise<{ success: boolean; me
   }
 };
 
+export const updateRota = async (
+  rotaId: string,
+  data: Partial<CreateRotaInput> & { paradas?: Parada[] }
+): Promise<{ success: boolean; message: string; rota?: Rota }> => {
+  if (!rotaId) return { success: false, message: 'ID da rota inválido.' };
+
+  try {
+    const payload: Record<string, any> = {};
+    if (data.nome !== undefined) payload.nome = data.nome.trim();
+    if (data.escola !== undefined) payload.escola = data.escola.trim();
+    if (data.horario !== undefined) payload.horario = data.horario.trim() || '18:00';
+    if (data.tipo !== undefined) payload.tipo = data.tipo === 'Volta' ? 'volta' : 'ida';
+    if (data.diasSemana !== undefined) payload.dias_semana = diasSemanaParaDb(data.diasSemana);
+    if (data.motoristaId !== undefined) payload.motorista_cpf = digitos(data.motoristaId) || null;
+
+    const resp = await apiClient.patch<any[]>(
+      `/rota?id=eq.${encodeURIComponent(String(rotaId))}`,
+      payload,
+      PREFER_RETORNO
+    );
+    const rotaDb = Array.isArray(resp.data) ? resp.data[0] : resp.data;
+    if (!rotaDb?.id) {
+      return { success: false, message: 'Rota não encontrada ou o servidor não permitiu atualizar.' };
+    }
+
+    if (Array.isArray(data.paradas) && data.paradas.length > 0) {
+      await apiClient.delete(`/rota_parada?rota_id=eq.${encodeURIComponent(String(rotaDb.id))}`).catch(() => {});
+      await apiClient.post(
+        '/rota_parada',
+        data.paradas.map((p, i) => ({
+          rota_id: rotaDb.id,
+          ordem: i + 1,
+          nome: p.nome,
+          endereco: p.endereco || '',
+          latitude: p.latitude,
+          longitude: p.longitude,
+        }))
+      );
+    }
+
+    // Se já existir viagem agendada para hoje nesta rota, sincroniza dados básicos
+    try {
+      const hoje = hojeLocalIso();
+      const patchViagem: Record<string, any> = {};
+      if (payload.nome) patchViagem.nome_rota = payload.nome;
+      if (payload.horario) patchViagem.horario = payload.horario;
+      if (payload.tipo) patchViagem.tipo = payload.tipo;
+      if ('motorista_cpf' in payload && payload.motorista_cpf) patchViagem.motorista_cpf = payload.motorista_cpf;
+      if (Object.keys(patchViagem).length > 0) {
+        await apiClient.patch(`/viagem?rota_id=eq.${rotaDb.id}&data=eq.${hoje}&status=eq.AGENDADA`, patchViagem);
+      }
+    } catch {}
+
+    return {
+      success: true,
+      message: 'Rota atualizada com sucesso!',
+      rota: rotaDbParaRota({
+        ...rotaDb,
+        rota_parada: (data.paradas || []).map((p, i) => ({ ...p, ordem: i + 1 })),
+      }),
+    };
+  } catch (err: any) {
+    if (err?.status === 409) return { success: false, message: 'Já existe outra rota com esse nome.' };
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível atualizar a rota no servidor.') };
+  }
+};
+
 const FERIADOS_PADRAO: Feriado[] = [
   { id: '1', nome: 'Páscoa', data: '20/04/2026', motivo: 'Feriado religioso (Sem transporte)' },
   { id: '2', nome: 'Tiradentes', data: '21/04/2026', motivo: 'Feriado nacional (Sem transporte)' },
@@ -2331,17 +2437,31 @@ export const deleteFeriado = async (feriadoId: string): Promise<{ success: boole
   }
 };
 
-const normalizarConvite = (c: any): Convite => ({
-  id: String(c?.codigo ?? ''),
-  codigo: c?.codigo || '',
-  usado: Boolean(c?.usado),
-  criadoEm: formatarDataHoraApi(c?.criadoEm),
-  expiraEm: formatarDataHoraApi(c?.expiraEm),
-});
+const normalizarConvite = (c: any): Convite => {
+  const expRaw = c?.expira_em || c?.expiraEm;
+  const expirado = expRaw ? new Date(expRaw).getTime() <= Date.now() : false;
+  return {
+    id: String(c?.codigo ?? ''),
+    codigo: c?.codigo || '',
+    usado: Boolean(c?.usado),
+    expirado,
+    criadoEm: formatarDataHoraApi(c?.criado_em || c?.criadoEm),
+    expiraEm: formatarDataHoraApi(expRaw),
+  };
+};
+
+const gerarCodigoConvite = (): string => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let bloco = '';
+  for (let i = 0; i < 6; i++) {
+    bloco += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `ADM-${bloco}`;
+};
 
 export const getConvites = async (): Promise<ConvitesResponse> => {
   try {
-    const response = await apiClient.get<any[]>('/admin/convites');
+    const response = await apiClient.get<any[]>('/convite?select=*&order=criado_em.desc');
     const lista = Array.isArray(response.data) ? response.data : [];
     const convites = lista.map(normalizarConvite);
     try {
@@ -2349,7 +2469,7 @@ export const getConvites = async (): Promise<ConvitesResponse> => {
     } catch {}
     return { success: true, convites };
   } catch (err: any) {
-    console.warn('Backend /admin/convites indisponível:', err?.message || err);
+    console.warn('Supabase /convite indisponível:', err?.message || err);
     let convites: Convite[] = [];
     try {
       const raw = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
@@ -2368,8 +2488,17 @@ export const getConvites = async (): Promise<ConvitesResponse> => {
 
 export const createConvite = async (): Promise<{ success: boolean; convite?: Convite; message?: string }> => {
   try {
-    const response = await apiClient.post<any>('/admin/convites', {});
-    const convite = normalizarConvite(response.data);
+    const agora = new Date();
+    const expira = new Date(agora.getTime() + 24 * 60 * 60 * 1000);
+    const payload = {
+      codigo: gerarCodigoConvite(),
+      usado: false,
+      criado_em: agora.toISOString(),
+      expira_em: expira.toISOString(),
+    };
+    const response = await apiClient.post<any[]>('/convite', payload, PREFER_RETORNO);
+    const linha = Array.isArray(response.data) ? response.data[0] : response.data;
+    const convite = normalizarConvite(linha || payload);
     try {
       const raw = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
       const lista: Convite[] = raw ? JSON.parse(raw) : [];
@@ -2379,13 +2508,32 @@ export const createConvite = async (): Promise<{ success: boolean; convite?: Con
     return {
       success: true,
       convite,
-      message: 'Código de convite gerado com sucesso!',
+      message: 'Código de convite gerado e salvo no servidor!',
     };
   } catch (err: any) {
     return {
       success: false,
       message: getApiErrorMessage(err, 'Não foi possível gerar o convite no servidor.'),
     };
+  }
+};
+
+export const deleteConvite = async (codigo: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    await apiClient.delete(`/convite?codigo=eq.${encodeURIComponent(String(codigo))}`);
+    try {
+      const raw = await storageHelper.getItem(ADMIN_CONVITES_STORAGE_KEY);
+      if (raw) {
+        const lista: Convite[] = JSON.parse(raw);
+        await storageHelper.setItem(
+          ADMIN_CONVITES_STORAGE_KEY,
+          JSON.stringify(lista.filter((c) => c.codigo !== codigo))
+        );
+      }
+    } catch {}
+    return { success: true, message: 'Convite removido com sucesso.' };
+  } catch (err: any) {
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível excluir o convite.') };
   }
 };
 
@@ -2579,30 +2727,92 @@ export const updateNotificacoes = async (config: NotificacoesConfig): Promise<Pe
 };
 
 export const alterarSenha = async (senhaAtual: string, novaSenha: string): Promise<PerfilUpdateResponse> => {
-  // 1. Tenta no backend Render / Spring Boot se disponível
-  try {
-    const response = await fetch('https://backend-edutransporte.onrender.com/auth/alterar-senha', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ senhaAtual, novaSenha }),
-    });
-    if (response.ok) {
-      const data = await response.json().catch(() => ({}));
-      return { success: true, message: data?.message || 'Senha alterada com sucesso!' };
-    }
-  } catch {}
-
-  // 2. Tenta no endpoint padrão apiClient
-  try {
-    const response = await apiClient.put<any>('/auth/alterar-senha', { senhaAtual, novaSenha });
-    return { success: true, message: response.data?.message || 'Senha alterada com sucesso!' };
-  } catch (err: any) {
-    // 3. Fallback: simula/atualiza caso seja ambiente de teste
-    console.warn('Backend indisponível para troca remota de senha:', err?.message || err);
+  const sessao = await usuarioDaSessao();
+  if (!sessao) {
+    return { success: false, message: 'Sessão expirada. Faça login novamente.' };
+  }
+  if (sessao.role === 'admin') {
     return {
-      success: true,
-      message: 'Senha alterada com sucesso!',
+      success: false,
+      message: 'A chave de acesso administrativa é configurada pela coordenação.',
     };
+  }
+
+  const cpf = digitos(sessao.cpf || sessao.id);
+  const tipo = sessao.role === 'motorista' ? 'motorista' : 'aluno';
+  if (cpf.length !== 11) {
+    return { success: false, message: 'CPF do usuário não identificado na sessão.' };
+  }
+
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/alterar_senha_usuario`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        p_cpf: cpf,
+        p_senha_atual: senhaAtual,
+        p_nova_senha: novaSenha,
+        p_tipo: tipo,
+      }),
+    });
+
+    if (resp.status === 404) {
+      return {
+        success: false,
+        message: 'Função de troca de senha ainda não instalada no banco (execute a migration 20261115010000_melhorias_producao.sql no Supabase).',
+      };
+    }
+
+    if (!resp.ok) {
+      return { success: false, message: 'Não foi possível validar a troca de senha no servidor.' };
+    }
+
+    const data = await resp.json().catch(() => ({}));
+    switch (data?.resultado) {
+      case 'ok':
+        return { success: true, message: 'Senha alterada com sucesso no servidor!' };
+      case 'senha_atual_incorreta':
+        return { success: false, message: 'A senha atual digitada está incorreta.' };
+      case 'usuario_nao_encontrado':
+        return { success: false, message: 'Usuário não encontrado no sistema.' };
+      case 'dados_invalidos':
+        return { success: false, message: 'A nova senha deve ter pelo menos 6 caracteres.' };
+      default:
+        return { success: false, message: 'Não foi possível alterar a senha.' };
+    }
+  } catch (err: any) {
+    console.warn('Erro ao alterar senha no Supabase:', err?.message || err);
+    return {
+      success: false,
+      message: 'Sem conexão com o servidor para alterar sua senha.',
+    };
+  }
+};
+
+export const registrarPushToken = async (pushToken: string): Promise<void> => {
+  if (!pushToken) return;
+  const sessao = await usuarioDaSessao();
+  const cpf = digitos(sessao?.cpf || sessao?.id);
+  if (!sessao || cpf.length !== 11) return;
+
+  try {
+    await apiClient.post<any>(
+      '/push_token?on_conflict=cpf',
+      {
+        cpf,
+        token: pushToken,
+        tipo: sessao.role === 'motorista' ? 'motorista' : 'aluno',
+        atualizado_em: new Date().toISOString(),
+      },
+      { headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } }
+    );
+  } catch {
+    // Tabela opcional: ignora silenciosamente se migration ainda não foi aplicada
   }
 };
 
@@ -2762,9 +2972,19 @@ export interface ChatMessage {
 
 export const CHAT_STORAGE_PREFIX = 'edutransporte_chat_';
 
-export const getChatRoomKey = (rotaIdOuNome: string): string => {
-  if (!rotaIdOuNome) return 'geral';
-  return String(rotaIdOuNome)
+export interface ChatRotaResumo {
+  id: string;
+  rotaId?: string;
+  nome: string;
+  escola?: string;
+  horario?: string;
+  alunosQtd: number;
+}
+
+export const getChatRoomKey = (rotaIdOuNome: string, rotaFixaId?: string): string => {
+  const base = rotaFixaId ? `rota_${rotaFixaId}` : rotaIdOuNome;
+  if (!base) return 'geral';
+  return String(base)
     .trim()
     .toLowerCase()
     .normalize('NFD')
@@ -2772,56 +2992,205 @@ export const getChatRoomKey = (rotaIdOuNome: string): string => {
     .replace(/[^a-z0-9_-]/g, '_');
 };
 
-export const getMensagensRota = async (rotaIdOuNome: string): Promise<ChatMessage[]> => {
-  if (!rotaIdOuNome) return [];
-  const roomKey = getChatRoomKey(rotaIdOuNome);
+const resolverContextoChatRota = async (
+  rotaIdOuNome: string,
+  rotaFixaId?: string
+): Promise<{ rotaIdNum: number | null; viagemIds: number[]; viagemEnvioId: number | null }> => {
+  const bruto = String(rotaIdOuNome || '').trim();
+  const fixaBruta = String(rotaFixaId || '').trim();
+
+  let rotaIdNum: number | null = /^\d+$/.test(fixaBruta) ? Number(fixaBruta) : null;
+  if (!rotaIdNum && /^rota_(\d+)$/i.test(bruto)) {
+    rotaIdNum = Number(bruto.replace(/^rota_/i, ''));
+  }
+
+  const viagemDiretaNum = /^\d+$/.test(bruto) ? Number(bruto) : null;
+
+  if (!rotaIdNum && viagemDiretaNum) {
+    try {
+      const respViagem = await apiClient.get<any[]>(
+        `/viagem?id=eq.${viagemDiretaNum}&select=id,rota_id`
+      );
+      const row = Array.isArray(respViagem.data) ? respViagem.data[0] : null;
+      if (row?.rota_id) {
+        rotaIdNum = Number(row.rota_id);
+      }
+    } catch {
+      // ignora se offline
+    }
+  }
+
+  let viagemIds: number[] = [];
+  let viagemEnvioId: number | null = viagemDiretaNum;
+
+  if (rotaIdNum) {
+    try {
+      const respViagens = await apiClient.get<any[]>(
+        `/viagem?rota_id=eq.${rotaIdNum}&select=id,data&order=id.desc&limit=50`
+      );
+      if (Array.isArray(respViagens.data) && respViagens.data.length > 0) {
+        viagemIds = respViagens.data
+          .map((v: any) => Number(v.id))
+          .filter((n: number) => Number.isFinite(n) && n > 0);
+        const hoje = hojeLocalIso();
+        const deHoje = respViagens.data.find((v: any) => String(v.data || '').slice(0, 10) === hoje);
+        if (!viagemEnvioId) {
+          viagemEnvioId = Number(deHoje?.id || respViagens.data[0]?.id) || null;
+        }
+      }
+    } catch {
+      // ignora se offline
+    }
+  }
+
+  if (viagemDiretaNum && !viagemIds.includes(viagemDiretaNum)) {
+    viagemIds.unshift(viagemDiretaNum);
+  }
+
+  if (!viagemEnvioId && rotaIdNum) {
+    try {
+      const respDia = await apiClient.post<any>('/rpc/viagem_do_dia', { p_rota_id: rotaIdNum });
+      if (respDia?.data?.viagem?.id) {
+        viagemEnvioId = Number(respDia.data.viagem.id);
+        if (!viagemIds.includes(viagemEnvioId)) {
+          viagemIds.unshift(viagemEnvioId);
+        }
+      }
+    } catch {
+      // sem viagem do dia disponível
+    }
+  }
+
+  return { rotaIdNum, viagemIds, viagemEnvioId };
+};
+
+const buscarNomesRemetentesChat = async (
+  rows: any[]
+): Promise<{ alunos: Map<string, string>; motoristas: Map<string, string> }> => {
+  const alunos = new Map<string, string>();
+  const motoristas = new Map<string, string>();
+
+  const cpfs = Array.from(
+    new Set(
+      rows
+        .map((m: any) => digitos(m?.remetente_cpf))
+        .filter((cpf) => cpf.length >= 5)
+    )
+  );
+  if (cpfs.length === 0) return { alunos, motoristas };
+
+  const inClause = cpfs.join(',');
+  const [resAlunos, resMotoristas] = await Promise.all([
+    apiClient.get<any[]>(`/aluno?cpf=in.(${inClause})&select=cpf,nome_completo`).catch(() => null),
+    apiClient.get<any[]>(`/motorista?cpf=in.(${inClause})&select=cpf,nome_completo`).catch(() => null),
+  ]);
+
+  if (Array.isArray(resAlunos?.data)) {
+    resAlunos.data.forEach((a: any) => {
+      const k = digitos(a?.cpf);
+      if (k && a?.nome_completo) alunos.set(k, String(a.nome_completo));
+    });
+  }
+  if (Array.isArray(resMotoristas?.data)) {
+    resMotoristas.data.forEach((m: any) => {
+      const k = digitos(m?.cpf);
+      if (k && m?.nome_completo) motoristas.set(k, String(m.nome_completo));
+    });
+  }
+
+  return { alunos, motoristas };
+};
+
+export const getMensagensRota = async (
+  rotaIdOuNome: string,
+  rotaFixaId?: string
+): Promise<ChatMessage[]> => {
+  if (!rotaIdOuNome && !rotaFixaId) return [];
+  const roomKey = getChatRoomKey(rotaIdOuNome, rotaFixaId);
   const storageKey = `${CHAT_STORAGE_PREFIX}${roomKey}`;
 
-  let mensagens: ChatMessage[] = [];
+  let mensagensLocais: ChatMessage[] = [];
   try {
     const raw = await storageHelper.getItem(storageKey);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        mensagens = parsed;
+        mensagensLocais = parsed;
       }
     }
   } catch (err) {
     console.warn('Erro ao carregar mensagens locais da rota:', err);
   }
 
-  // Tenta sincronizar com o Supabase (/mensagem)
-  try {
-    const idViagemNum = Number(rotaIdOuNome) || 1;
-    const response = await apiClient.get<any[]>(`/mensagem?viagem_id=eq.${idViagemNum}&select=*`);
-    if (response?.data && Array.isArray(response.data)) {
-      const msgsSupabase: ChatMessage[] = response.data.map((m: any) => {
-        const dataObj = m.created_at ? new Date(m.created_at) : new Date();
-        return {
-          id: `db_${m.id}`,
-          rotaId: String(m.viagem_id || rotaIdOuNome),
-          autorId: String(m.remetente_cpf || ''),
-          autorNome: m.remetente_tipo === 'motorista' ? 'Motorista' : 'Aluno',
-          autorRole: m.remetente_tipo || 'aluno',
-          texto: m.texto || '',
-          horario: dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          data: dataObj.toLocaleDateString('pt-BR'),
-          timestamp: dataObj.getTime(),
-          syncStatus: 'synced',
-        };
-      });
+  const cacheLocalById = new Map<string, ChatMessage>();
+  mensagensLocais.forEach((m) => cacheLocalById.set(m.id, m));
 
-      const mapMsgs = new Map<string, ChatMessage>();
-      mensagens.forEach((m) => mapMsgs.set(m.id, m));
-      msgsSupabase.forEach((m) => mapMsgs.set(m.id, m));
-      mensagens = Array.from(mapMsgs.values());
-      await storageHelper.setItem(storageKey, JSON.stringify(mensagens));
+  // Tenta sincronizar com o Supabase (/mensagem) agregando todas as viagens da rota
+  try {
+    const { rotaIdNum, viagemIds } = await resolverContextoChatRota(rotaIdOuNome, rotaFixaId);
+    if (viagemIds.length > 0) {
+      const response = await apiClient.get<any[]>(
+        `/mensagem?viagem_id=in.(${viagemIds.join(',')})&or=(deletado.is.null,deletado.eq.false)&select=*&order=id.asc`
+      );
+      if (response?.data && Array.isArray(response.data)) {
+        const { alunos, motoristas } = await buscarNomesRemetentesChat(response.data);
+
+        const msgsSupabase: ChatMessage[] = response.data.map((m: any) => {
+          const msgId = `db_${m.id}`;
+          const prevLocal = cacheLocalById.get(msgId);
+          const dataObj = m.created_at ? new Date(m.created_at) : null;
+          const dataValida = dataObj && !Number.isNaN(dataObj.getTime()) ? dataObj : null;
+
+          const cpfRaw = String(m.remetente_cpf || '');
+          const cpfLimpo = digitos(cpfRaw);
+          const isAdminSender = cpfRaw === 'admin' || m.remetente_tipo === 'admin';
+          const roleResolvido = isAdminSender
+            ? 'admin'
+            : m.remetente_tipo === 'motorista'
+              ? 'motorista'
+              : 'aluno';
+
+          const autorNome = isAdminSender
+            ? 'Administrador'
+            : roleResolvido === 'motorista'
+              ? motoristas.get(cpfLimpo) || alunos.get(cpfLimpo) || 'Motorista'
+              : alunos.get(cpfLimpo) || motoristas.get(cpfLimpo) || 'Aluno';
+
+          return {
+            id: msgId,
+            rotaId: String(rotaIdNum || m.viagem_id || rotaIdOuNome),
+            autorId: cpfLimpo || cpfRaw,
+            autorNome,
+            autorRole: roleResolvido,
+            texto: m.texto || '',
+            horario: dataValida
+              ? dataValida.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+              : prevLocal?.horario || '--:--',
+            data: dataValida
+              ? dataValida.toLocaleDateString('pt-BR')
+              : prevLocal?.data || '',
+            timestamp: dataValida
+              ? dataValida.getTime()
+              : prevLocal?.timestamp || Number(m.id) || 0,
+            syncStatus: 'synced',
+          };
+        });
+
+        // Preserva apenas mensagens locais ainda pendentes de envio;
+        // mensagens já sincronizadas ou removidas no servidor seguem o estado do Supabase.
+        const pendentes = mensagensLocais.filter((m) => m.syncStatus === 'pending');
+        const mapMsgs = new Map<string, ChatMessage>();
+        msgsSupabase.forEach((m) => mapMsgs.set(m.id, m));
+        pendentes.forEach((m) => mapMsgs.set(m.id, m));
+        mensagensLocais = Array.from(mapMsgs.values());
+        await storageHelper.setItem(storageKey, JSON.stringify(mensagensLocais));
+      }
     }
   } catch {
     // Modo offline preservado: usa apenas as mensagens locais
   }
 
-  return mensagens.sort((a, b) => a.timestamp - b.timestamp);
+  return mensagensLocais.sort((a, b) => a.timestamp - b.timestamp);
 };
 
 export const enviarMensagemRota = async (
@@ -2832,21 +3201,23 @@ export const enviarMensagemRota = async (
     autorRole: string;
     texto: string;
     rotaNome?: string;
+    rotaFixaId?: string;
   }
 ): Promise<{ success: boolean; mensagem?: ChatMessage; message?: string }> => {
-  if (!rotaIdOuNome || !dados.texto?.trim()) {
+  if ((!rotaIdOuNome && !dados.rotaFixaId) || !dados.texto?.trim()) {
     return { success: false, message: 'Texto ou rota inválida para o chat.' };
   }
 
-  const roomKey = getChatRoomKey(rotaIdOuNome);
+  const roomKey = getChatRoomKey(rotaIdOuNome, dados.rotaFixaId);
   const storageKey = `${CHAT_STORAGE_PREFIX}${roomKey}`;
   const agora = new Date();
+  const cpfAutorLimpo = digitos(dados.autorId);
 
   const novaMensagem: ChatMessage = {
     id: `msg_${agora.getTime()}_${Math.random().toString(36).substring(2, 8)}`,
-    rotaId: rotaIdOuNome,
+    rotaId: dados.rotaFixaId || rotaIdOuNome,
     rotaNome: dados.rotaNome,
-    autorId: dados.autorId || 'anonimo',
+    autorId: cpfAutorLimpo || dados.autorId || 'anonimo',
     autorNome: dados.autorNome || 'Usuário',
     autorRole: dados.autorRole || 'aluno',
     texto: dados.texto.trim(),
@@ -2856,84 +3227,186 @@ export const enviarMensagemRota = async (
     syncStatus: 'pending',
   };
 
+  let listaLocal: ChatMessage[] = [];
   try {
     const raw = await storageHelper.getItem(storageKey);
-    const lista: ChatMessage[] = raw ? JSON.parse(raw) : [];
-    lista.push(novaMensagem);
-    await storageHelper.setItem(storageKey, JSON.stringify(lista));
+    listaLocal = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(listaLocal)) listaLocal = [];
+    listaLocal.push(novaMensagem);
+    await storageHelper.setItem(storageKey, JSON.stringify(listaLocal));
   } catch (err) {
     console.warn('Erro ao salvar mensagem no storage local:', err);
   }
 
-  // Tenta enviar para o Supabase (/mensagem)
+  // Tenta enviar para o Supabase (/mensagem) e trocar o ID otimista pelo db_<id>
   try {
-    const idViagemNum = Number(rotaIdOuNome) || 1;
-    const response = await apiClient.post('/mensagem', {
-      remetente_cpf: String(novaMensagem.autorId).replace(/\D/g, '') || '16005485474',
-      remetente_tipo: novaMensagem.autorRole === 'motorista' ? 'motorista' : 'aluno',
-      texto: novaMensagem.texto,
-      viagem_id: idViagemNum,
-    });
-    if (response?.ok || response?.status === 201) {
-      novaMensagem.syncStatus = 'synced';
+    const { viagemEnvioId } = await resolverContextoChatRota(rotaIdOuNome, dados.rotaFixaId);
+    if (viagemEnvioId) {
+      const remetenteCpf =
+        dados.autorRole === 'admin' && !cpfAutorLimpo
+          ? 'admin'
+          : cpfAutorLimpo || 'admin';
+      const remetenteTipo = dados.autorRole === 'motorista' ? 'motorista' : 'aluno';
+
+      const response = await apiClient.post<any[]>('/mensagem', {
+        remetente_cpf: remetenteCpf,
+        remetente_tipo: remetenteTipo,
+        texto: novaMensagem.texto,
+        viagem_id: viagemEnvioId,
+        created_at: agora.toISOString(),
+        deletado: false,
+      }, PREFER_RETORNO);
+
+      if (response?.ok || response?.status === 201) {
+        const criado = Array.isArray(response.data) ? response.data[0] : response.data;
+        const idTemp = novaMensagem.id;
+        novaMensagem.syncStatus = 'synced';
+        if (criado?.id) {
+          novaMensagem.id = `db_${criado.id}`;
+        }
+        try {
+          const atual = listaLocal.map((m) => (m.id === idTemp ? { ...novaMensagem } : m));
+          await storageHelper.setItem(storageKey, JSON.stringify(atual));
+        } catch {}
+      }
     }
   } catch {
-    // Modo offline preservado
+    // Modo offline preservado (fica com syncStatus: 'pending')
   }
 
   return { success: true, mensagem: novaMensagem };
 };
 
-export const excluirMensagemRota = async (rotaIdOuNome: string, mensagemId: string): Promise<boolean> => {
-  if (!rotaIdOuNome || !mensagemId) return false;
-  const roomKey = getChatRoomKey(rotaIdOuNome);
+export const excluirMensagemRota = async (
+  rotaIdOuNome: string,
+  mensagemId: string,
+  rotaFixaId?: string
+): Promise<boolean> => {
+  if ((!rotaIdOuNome && !rotaFixaId) || !mensagemId) return false;
+  const roomKey = getChatRoomKey(rotaIdOuNome, rotaFixaId);
   const storageKey = `${CHAT_STORAGE_PREFIX}${roomKey}`;
+
+  if (mensagemId.startsWith('db_')) {
+    const idDb = Number(mensagemId.replace('db_', ''));
+    if (Number.isFinite(idDb) && idDb > 0) {
+      try {
+        await apiClient.patch(`/mensagem?id=eq.${idDb}`, { deletado: true });
+      } catch (err) {
+        console.warn('Erro ao marcar mensagem como excluída no Supabase:', err);
+      }
+    }
+  }
 
   try {
     const raw = await storageHelper.getItem(storageKey);
-    if (!raw) return false;
-    let lista: ChatMessage[] = JSON.parse(raw);
-    lista = lista.filter((m) => m.id !== mensagemId);
-    await storageHelper.setItem(storageKey, JSON.stringify(lista));
+    if (raw) {
+      let lista: ChatMessage[] = JSON.parse(raw);
+      lista = lista.filter((m) => m.id !== mensagemId);
+      await storageHelper.setItem(storageKey, JSON.stringify(lista));
+    }
     return true;
   } catch (err) {
-    console.warn('Erro ao excluir mensagem da rota:', err);
+    console.warn('Erro ao excluir mensagem local da rota:', err);
     return false;
   }
 };
 
-export const limparChatRota = async (rotaIdOuNome: string): Promise<boolean> => {
-  if (!rotaIdOuNome) return false;
-  const roomKey = getChatRoomKey(rotaIdOuNome);
+export const limparChatRota = async (
+  rotaIdOuNome: string,
+  rotaFixaId?: string
+): Promise<boolean> => {
+  if (!rotaIdOuNome && !rotaFixaId) return false;
+  const roomKey = getChatRoomKey(rotaIdOuNome, rotaFixaId);
   const storageKey = `${CHAT_STORAGE_PREFIX}${roomKey}`;
+
+  try {
+    const { viagemIds } = await resolverContextoChatRota(rotaIdOuNome, rotaFixaId);
+    if (viagemIds.length > 0) {
+      await apiClient.patch(`/mensagem?viagem_id=in.(${viagemIds.join(',')})`, {
+        deletado: true,
+      });
+    }
+  } catch (err) {
+    console.warn('Erro ao limpar histórico remoto do chat:', err);
+  }
 
   try {
     await storageHelper.setItem(storageKey, JSON.stringify([]));
     return true;
   } catch (err) {
-    console.warn('Erro ao limpar chat da rota:', err);
+    console.warn('Erro ao limpar chat local da rota:', err);
     return false;
   }
 };
 
-export const getRotasParaChat = async (): Promise<Array<{ id: string; nome: string; escola?: string; horario?: string; alunosQtd: number }>> => {
-  // Rotas reais do backend: é a mesma lista que alunos e motoristas veem.
+export const getRotasParaChat = async (): Promise<ChatRotaResumo[]> => {
+  // Prioriza rotas fixas (/rota) para evitar duplicação por viagem diária
+  try {
+    const [resRotas, resViagens, resVinculos] = await Promise.all([
+      apiClient.get<any[]>('/rota?ativo=eq.true&select=*&order=horario.asc'),
+      apiClient.get<any[]>('/viagem?select=id,rota_id,data&order=id.desc&limit=100').catch(() => null),
+      apiClient.get<any[]>('/aluno_rota?select=rota_id').catch(() => null),
+    ]);
+
+    if (Array.isArray(resRotas?.data) && resRotas.data.length > 0) {
+      const hoje = hojeLocalIso();
+      const viagens = Array.isArray(resViagens?.data) ? resViagens.data : [];
+      const contAlunos = new Map<string, number>();
+
+      if (Array.isArray(resVinculos?.data)) {
+        resVinculos.data.forEach((v: any) => {
+          const rid = String(v?.rota_id ?? '');
+          if (rid) contAlunos.set(rid, (contAlunos.get(rid) || 0) + 1);
+        });
+      }
+
+      return resRotas.data.map((r: any) => {
+        const rid = String(r.id);
+        const viagensDaRota = viagens.filter((v: any) => String(v.rota_id ?? '') === rid);
+        const viagemHoje =
+          viagensDaRota.find((v: any) => String(v.data || '').slice(0, 10) === hoje) ||
+          viagensDaRota[0];
+
+        return {
+          id: viagemHoje ? String(viagemHoje.id) : `rota_${rid}`,
+          rotaId: rid,
+          nome: r.nome || 'Rota',
+          escola: r.escola || '',
+          horario: formatarHoraApi(r.horario),
+          alunosQtd: contAlunos.get(rid) || 0,
+        };
+      });
+    }
+  } catch (err: any) {
+    console.warn('Tabela /rota indisponível para o chat:', err?.message || err);
+  }
+
+  // Fallback: viagens existentes deduplicadas
   try {
     const response = await getViagensResp();
     if (Array.isArray(response.data) && response.data.length > 0) {
-      return response.data.map((v: any) => ({
-        id: String(v.id ?? ''),
-        nome: v.nomeRota || 'Rota',
-        escola: v.escola || '',
-        horario: formatarHoraApi(v.horario),
-        alunosQtd: 0,
-      }));
+      const vistos = new Set<string>();
+      const lista: ChatRotaResumo[] = [];
+      response.data.forEach((v: any) => {
+        const chave = String(v.rotaId || v.nomeRota || v.id);
+        if (vistos.has(chave)) return;
+        vistos.add(chave);
+        lista.push({
+          id: String(v.id ?? ''),
+          rotaId: v.rotaId ? String(v.rotaId) : undefined,
+          nome: v.nomeRota || 'Rota',
+          escola: v.escola || '',
+          horario: formatarHoraApi(v.horario),
+          alunosQtd: 0,
+        });
+      });
+      if (lista.length > 0) return lista;
     }
   } catch (err: any) {
-    console.warn('Backend /api/viagens indisponível para o chat:', err?.message || err);
+    console.warn('Backend /viagem indisponível para o chat:', err?.message || err);
   }
 
-  // Fallback para rotas criadas no navegador (cache local).
+  // Fallback offline local
   try {
     const rawAdmin = await storageHelper.getItem(ADMIN_ROTAS_STORAGE_KEY);
     let rotas: Rota[] = [];
@@ -2948,6 +3421,7 @@ export const getRotasParaChat = async (): Promise<Array<{ id: string; nome: stri
     }
     return rotas.map((r) => ({
       id: r.id,
+      rotaId: r.rotaId || r.id,
       nome: r.nome,
       escola: r.escola,
       horario: r.horario,
@@ -2956,6 +3430,7 @@ export const getRotasParaChat = async (): Promise<Array<{ id: string; nome: stri
   } catch {
     return ROTAS_PADRAO_INICIAIS.map((r) => ({
       id: r.id,
+      rotaId: r.id,
       nome: r.nome,
       escola: r.escola,
       horario: r.horario,

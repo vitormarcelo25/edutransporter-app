@@ -26,7 +26,6 @@ import { useApp } from '../_layout';
 import {
   getRotaDoDia,
   getGpsPosition,
-  updateGpsPosition,
   Rota,
   Parada,
   calcularDistanciaMetros,
@@ -148,15 +147,6 @@ export default function Mapa() {
         const next = (prev + 1) % points.length;
         const currentCoord = points[next];
         setBusLocation(currentCoord);
-        // Atualiza a posição também no storage local para sincronizar
-        updateGpsPosition({
-          rotaId: rota.id,
-          position: {
-            latitude: currentCoord.latitude,
-            longitude: currentCoord.longitude,
-            timestamp: Date.now(),
-          },
-        }).catch(() => {});
         return next;
       });
     }, 2500);

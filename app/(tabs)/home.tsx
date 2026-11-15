@@ -8,7 +8,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useApp } from '../_layout';
-import { getRotaDoDia, confirmarPresenca, cancelarPresenca, Parada, Rota, ConfirmacaoResponse } from '../../services/api';
+import { getRotaDoDia, confirmarPresenca, cancelarPresenca, getAdminDashboard, Parada, Rota, ConfirmacaoResponse, AdminStats } from '../../services/api';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -17,6 +17,7 @@ export default function HomeScreen() {
   const [currentDate, setCurrentDate] = useState('');
   const [currentTime, setCurrentTime] = useState('');
   const [rota, setRota] = useState<Rota | null>(null);
+  const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [loadingRota, setLoadingRota] = useState(true);
   const [loadingConfirmacao, setLoadingConfirmacao] = useState(false);
   const [avisoDia, setAvisoDia] = useState<string | null>(null);
@@ -81,7 +82,13 @@ export default function HomeScreen() {
   const loadRotaData = async () => {
     setLoadingRota(true);
     try {
-      const response = await getRotaDoDia(userRole === 'aluno' ? userData?.id : undefined);
+      const [response, dashResp] = await Promise.all([
+        getRotaDoDia(userRole === 'aluno' ? userData?.id : undefined),
+        userRole === 'admin' ? getAdminDashboard().catch(() => null) : Promise.resolve(null),
+      ]);
+      if (dashResp?.success && dashResp.stats) {
+        setAdminStats(dashResp.stats);
+      }
       setAvisoDia(response.aviso || null);
       if (response.success && response.rota) {
         setRota(response.rota);
@@ -111,7 +118,7 @@ export default function HomeScreen() {
   useFocusEffect(
     React.useCallback(() => {
       loadRotaData();
-    }, [userData?.id])
+    }, [userData?.id, userRole])
   );
 
   const calcularChegada = (saida: string, qtdParadas: number) => {
@@ -143,27 +150,14 @@ export default function HomeScreen() {
     return `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
   };
 
-  const mockRotaInfo = {
-    escola: 'Faculdade Uninassau',
-    tipo: 'Ida',
-    previsao: '07:45',
-    lotacao: 15,
-    total: 40,
-    progresso: 40,
-    paradas: [
-      { horario: '07:00', nome: 'Escola' },
-      { horario: '07:15', nome: 'Parada 1' },
-      { horario: '07:30', nome: 'Parada 2' },
-      { horario: '07:45', nome: 'Seu Ponto' },
-    ]
-  };
-
-  const getTipoRota = () => {
-    return mockRotaInfo.tipo;
-  };
+  const CAPACIDADE_PADRAO_ONIBUS = 40;
+  const tipoRotaPadrao = rota?.tipo || 'Ida';
 
   // Lotação real: alunos que confirmaram presença hoje
-  const progressLotacao = ((rota?.alunos.filter((a: any) => a.presente).length || 0) / mockRotaInfo.total) * 100;
+  const progressLotacao = Math.min(
+    ((rota?.alunos.filter((a: any) => a.presente || a.confirmouPresenca).length || 0) / CAPACIDADE_PADRAO_ONIBUS) * 100,
+    100
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -178,7 +172,7 @@ export default function HomeScreen() {
       ]}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.welcomeText, { color: theme.text }]}>
-            {userRole === 'admin' ? 'Olá, Administrador' : `Olá, ${userData?.nome || (userRole === 'aluno' ? 'Aluno' : 'Carlos Alberto Silva')}!`}
+            {userRole === 'admin' ? 'Olá, Administrador' : `Olá, ${userData?.nome || (userRole === 'aluno' ? 'Aluno' : 'Motorista')}!`}
           </Text>
           <Text style={[styles.statusSub, { color: theme.subtext }]}>
             {currentDate} • {currentTime}
@@ -236,7 +230,7 @@ export default function HomeScreen() {
                 {/* Badge Rota */}
                 <View style={[styles.heroBadge, { backgroundColor: theme.gold + '20' }]}>
                   <FontAwesome5 name="bus-alt" size={12} color={theme.gold} style={{marginRight: 6}} />
-                  <Text style={[styles.heroBadgeText, { color: theme.gold }]}>ROTA {rota?.tipo || mockRotaInfo.tipo}</Text>
+                  <Text style={[styles.heroBadgeText, { color: theme.gold }]}>ROTA {tipoRotaPadrao}</Text>
                 </View>
                 <View style={[styles.pulseStatus, { backgroundColor: '#48BB78' }]} />
               </View>
@@ -376,7 +370,7 @@ export default function HomeScreen() {
                   </Text>
                 </View>
                 <View style={[styles.rotaTipoBadge, { backgroundColor: theme.inputBg }]}>
-                  <Text style={[styles.rotaTipoText, { color: theme.subtext }]}>{rota?.tipo || mockRotaInfo.tipo}</Text>
+                  <Text style={[styles.rotaTipoText, { color: theme.subtext }]}>{tipoRotaPadrao}</Text>
                 </View>
               </View>
 
@@ -583,19 +577,21 @@ export default function HomeScreen() {
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <MaterialCommunityIcons name="clock-outline" size={22} color={theme.coral || '#FF8A65'} />
                   <Text style={{ marginTop: 4, fontSize: 12, color: theme.subtext, fontWeight: '500' }}>Saída</Text>
-                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>06:30</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>{rota?.horario || '--:--'}</Text>
                 </View>
                 <View style={{ width: 1, height: 48, backgroundColor: theme.border }} />
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <MaterialCommunityIcons name="clock-check-outline" size={22} color={theme.ok || '#6EE7B7'} />
                   <Text style={{ marginTop: 4, fontSize: 12, color: theme.subtext, fontWeight: '500' }}>Chegada</Text>
-                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.ok || '#6EE7B7', marginTop: 2 }}>07:50</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.ok || '#6EE7B7', marginTop: 2 }}>
+                    {rota?.horario ? calcularChegada(rota.horario, rota.paradas?.length || 0) : '--:--'}
+                  </Text>
                 </View>
                 <View style={{ width: 1, height: 48, backgroundColor: theme.border }} />
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <MaterialCommunityIcons name="account-group" size={22} color={theme.blue || '#7DD3FC'} />
                   <Text style={{ marginTop: 4, fontSize: 12, color: theme.subtext, fontWeight: '500' }}>Alunos</Text>
-                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>{rota?.alunos?.length || 3}</Text>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>{rota?.alunos?.length ?? 0}</Text>
                 </View>
               </View>
             </View>
@@ -608,17 +604,17 @@ export default function HomeScreen() {
             <View style={styles.adminStatsRow}>
               <View style={[styles.adminStatCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <FontAwesome5 name="user-graduate" size={18} color="#4299E1" />
-                <Text style={[styles.adminStatNumber, { color: theme.text }]}>48</Text>
+                <Text style={[styles.adminStatNumber, { color: theme.text }]}>{adminStats ? adminStats.totalAlunos : '—'}</Text>
                 <Text style={[styles.adminStatLabel, { color: theme.subtext }]}>Alunos</Text>
               </View>
               <View style={[styles.adminStatCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <FontAwesome5 name="bus" size={18} color="#48BB78" />
-                <Text style={[styles.adminStatNumber, { color: theme.text }]}>5</Text>
+                <Text style={[styles.adminStatNumber, { color: theme.text }]}>{adminStats ? adminStats.totalMotoristas : '—'}</Text>
                 <Text style={[styles.adminStatLabel, { color: theme.subtext }]}>Motoristas</Text>
               </View>
               <View style={[styles.adminStatCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <FontAwesome5 name="route" size={18} color={theme.gold} />
-                <Text style={[styles.adminStatNumber, { color: theme.text }]}>12</Text>
+                <Text style={[styles.adminStatNumber, { color: theme.text }]}>{adminStats ? adminStats.totalRotasAtivas : '—'}</Text>
                 <Text style={[styles.adminStatLabel, { color: theme.subtext }]}>Rotas</Text>
               </View>
             </View>

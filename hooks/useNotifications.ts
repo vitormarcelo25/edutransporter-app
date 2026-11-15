@@ -1,6 +1,8 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import { useApp } from '../contexts/AppContext';
+import { registrarPushToken } from '../services/api';
 import { 
   requestNotificationPermissions,
   getPushToken,
@@ -15,13 +17,20 @@ import {
 // Hook principal para configurar notificações
 export function useNotifications() {
   const router = useRouter();
+  const { authToken } = useApp();
+  const pushTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Solicita permissões ao inicializar
     requestNotificationPermissions();
 
-    // Obtém push token
-    getPushToken();
+    // Obtém push token e registra caso já esteja autenticado
+    getPushToken().then((token) => {
+      if (token) {
+        pushTokenRef.current = token;
+        registrarPushToken(token).catch(() => {});
+      }
+    });
 
     // Configura listeners
     const cleanup = setupNotificationListeners(
@@ -57,6 +66,12 @@ export function useNotifications() {
 
     return cleanup;
   }, [router]);
+
+  useEffect(() => {
+    if (authToken && pushTokenRef.current) {
+      registrarPushToken(pushTokenRef.current).catch(() => {});
+    }
+  }, [authToken]);
 
   return {
     notifyNewAviso,

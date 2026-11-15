@@ -11,7 +11,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vitormatrix.edutransporte",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "O EduTransporter utiliza sua localização para mostrar paradas próximas e transmitir a posição do ônibus em tempo real durante a viagem."
       }
     },
     "android": {
@@ -27,7 +28,9 @@
         "NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
