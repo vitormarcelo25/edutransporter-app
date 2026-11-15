@@ -2514,21 +2514,64 @@ export const updatePerfil = async (data: Partial<Usuario>): Promise<PerfilUpdate
 
 export const NOTIFICACOES_STORAGE_KEY = 'edutransporte_notificacoes_config';
 
+/** CPF do usuário logado (salvo na sessão). */
+const cpfDaSessao = async (): Promise<string> => {
+  try {
+    const raw = await storageHelper.getItem('user_data_v2');
+    if (raw) { const u = JSON.parse(raw); return digitos(u?.cpf || u?.id); }
+  } catch {}
+  return '';
+};
+
+const prefDbParaConfig = (r: any): NotificacoesConfig => ({
+  avisos: r?.avisos_importantes ?? true,
+  presenca: r?.presenca ?? true,
+  mensagens: r?.mensagens ?? true,
+  rotas: r?.rotas ?? true,
+});
+
+/** Preferências salvas: primeiro o servidor (vale em qualquer aparelho), senão o aparelho. */
 export const getNotificacoesLocal = async (): Promise<NotificacoesConfig | null> => {
+  let local: NotificacoesConfig | null = null;
   try {
     const raw = await storageHelper.getItem(NOTIFICACOES_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as NotificacoesConfig) : null;
-  } catch {
-    return null;
+    local = raw ? (JSON.parse(raw) as NotificacoesConfig) : null;
+  } catch {}
+
+  const cpf = await cpfDaSessao();
+  if (!cpf) return local;
+  try {
+    const resp = await apiClient.get<any[]>(`/tb_preferencia_notificacao?cpf=eq.${cpf}&select=*`);
+    const linha = Array.isArray(resp.data) ? resp.data[0] : null;
+    if (linha) {
+      const cfg = prefDbParaConfig(linha);
+      await storageHelper.setItem(NOTIFICACOES_STORAGE_KEY, JSON.stringify(cfg));
+      return cfg;
+    }
+  } catch (err: any) {
+    console.warn('Não foi possível ler as notificações do servidor:', err?.message || err);
   }
+  return local;
 };
 
 export const updateNotificacoes = async (config: NotificacoesConfig): Promise<PerfilUpdateResponse> => {
   // A preferência sempre é gravada neste aparelho; o servidor é tentado em seguida.
   await storageHelper.setItem(NOTIFICACOES_STORAGE_KEY, JSON.stringify(config));
+  const cpf = await cpfDaSessao();
+  if (!cpf) return { success: true, message: 'Preferência salva neste aparelho.' };
   try {
-    const response = await apiClient.put<any>('/api/usuarios/notificacoes', config);
-    return { success: true, message: response.data?.message || 'Notificações atualizadas!' };
+    await apiClient.post<any>(
+      '/tb_preferencia_notificacao?on_conflict=cpf',
+      {
+        cpf,
+        avisos_importantes: config.avisos,
+        presenca: config.presenca,
+        mensagens: config.mensagens,
+        rotas: config.rotas,
+      },
+      { headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } }
+    );
+    return { success: true, message: 'Notificações atualizadas!' };
   } catch (err: any) {
     console.warn('Notificações salvas só neste aparelho:', err?.message || err);
     return { success: true, message: 'Preferência salva neste aparelho.' };
