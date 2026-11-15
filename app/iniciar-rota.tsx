@@ -208,11 +208,7 @@ export default function IniciarRota() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.header}>
-<<<<<<< HEAD:app/iniciar-rota.tsx
           <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
-=======
-          <TouchableOpacity onPress={voltar}>
->>>>>>> e64dc84d641b79bcccac686a21a1726736c14357:app/(tabs)/iniciar-rota.tsx
             <Feather name="arrow-left" size={24} color={theme.text} />
           </TouchableOpacity>
           <Text style={[styles.title, { color: theme.text }]}>Iniciar Rota</Text>
@@ -231,11 +227,7 @@ export default function IniciarRota() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.header}>
-<<<<<<< HEAD:app/iniciar-rota.tsx
         <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
-=======
-        <TouchableOpacity onPress={voltar}>
->>>>>>> e64dc84d641b79bcccac686a21a1726736c14357:app/(tabs)/iniciar-rota.tsx
           <Feather name="arrow-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Iniciar Rota</Text>

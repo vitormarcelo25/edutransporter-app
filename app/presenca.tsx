@@ -75,11 +75,7 @@ export default function Presenca() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.header}>
-<<<<<<< HEAD:app/presenca.tsx
           <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
-=======
-          <TouchableOpacity onPress={voltar}>
->>>>>>> e64dc84d641b79bcccac686a21a1726736c14357:app/(tabs)/presenca.tsx
             <Feather name="arrow-left" size={24} color={theme.text} />
           </TouchableOpacity>
           <Text style={[styles.title, { color: theme.text }]}>Presença</Text>
@@ -98,11 +94,7 @@ export default function Presenca() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.header}>
-<<<<<<< HEAD:app/presenca.tsx
         <TouchableOpacity onPress={() => router.replace('/(tabs)/home')} style={{ padding: 8 }}>
-=======
-        <TouchableOpacity onPress={voltar}>
->>>>>>> e64dc84d641b79bcccac686a21a1726736c14357:app/(tabs)/presenca.tsx
           <Feather name="arrow-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]}>Presença</Text>
