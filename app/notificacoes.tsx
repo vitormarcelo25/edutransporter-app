@@ -137,7 +137,7 @@ export default function Notificacoes() {
           />
           <ItemSwitch 
             title="Rotas" 
-            subtitle="Lembrees de viagens agendadas"
+            subtitle="Lembretes de viagens agendadas"
             keyName="rotas"
             icon="map-pin"
             iconColor="#9F7AEA"
@@ -147,7 +147,7 @@ export default function Notificacoes() {
         <View style={styles.infoBox}>
           <Feather name="info" size={18} color={theme.subtext} />
           <Text style={[styles.infoText, { color: theme.subtext }]}>
-            As notificações push dependem das permissões do dispositivo. Para修改ar, vá em Configurações do App.
+            As notificações push dependem das permissões do dispositivo. Para alterar, vá em Configurações do App.
           </Text>
         </View>
 
