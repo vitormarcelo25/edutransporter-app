@@ -13,6 +13,14 @@ import {
   storageHelper,
   setOnUnauthorized,
 } from './client';
+import {
+  validarCPFReal,
+  validarTelefoneBR,
+  limparCNH,
+  validarCNH,
+  formatarPlaca,
+  validarPlaca,
+} from './cpf';
 
 export { API_BASE_URL, storageHelper, setOnUnauthorized };
 
@@ -1958,26 +1966,48 @@ export const cadastrarMotoristaAdmin = async (dados: {
   telefone: string;
   cnh: string;
   placa: string;
+  senha: string;
   rotaId: string;
   rotaNome: string;
 }): Promise<{ success: boolean; message: string; motorista?: MotoristaCadastrado }> => {
+  const nomeLimpo = dados.nome.trim();
   const cpfLimpo = digitos(dados.cpf);
-  const placaFormatada = dados.placa.trim().toUpperCase();
-  if (cpfLimpo.length !== 11) return { success: false, message: 'CPF do motorista inválido.' };
-  if (!dados.nome.trim()) return { success: false, message: 'Informe o nome do motorista.' };
+  const telefoneLimpo = digitos(dados.telefone);
+  const cnhLimpa = limparCNH(dados.cnh);
+  const placaFormatada = formatarPlaca(dados.placa);
+  const senhaInformada = String(dados.senha || '');
+
+  if (nomeLimpo.length < 3 || !/[A-Za-zÀ-ÿ]/.test(nomeLimpo)) {
+    return { success: false, message: 'Informe o nome completo do motorista (mínimo 3 caracteres).' };
+  }
+  if (!validarCPFReal(cpfLimpo)) {
+    return { success: false, message: 'CPF do motorista inválido. Verifique os 11 dígitos.' };
+  }
+  if (!validarTelefoneBR(telefoneLimpo)) {
+    return { success: false, message: 'Telefone inválido. Informe o DDD + número com 10 ou 11 dígitos.' };
+  }
+  if (!validarCNH(cnhLimpa)) {
+    return { success: false, message: 'CNH inválida. Deve conter exatamente 11 dígitos numéricos válidos.' };
+  }
+  if (!validarPlaca(placaFormatada)) {
+    return { success: false, message: 'Placa do veículo inválida. Use o formato ABC-1234 ou Mercosul ABC1D23.' };
+  }
+  if (senhaInformada.trim().length < 6 || senhaInformada.length < 6) {
+    return { success: false, message: 'A senha do motorista deve ter pelo menos 6 caracteres.' };
+  }
 
   try {
     const cidades = await getCidades();
     const cidadeId = Number(cidades[0]?.id) || 1;
 
-    // Senha inicial 12345 (criptografada pelo banco)
+    // A senha é criptografada automaticamente no banco pelo trigger motorista_hash_senha
     await apiClient.post('/motorista', {
       cpf: cpfLimpo,
-      nome_completo: dados.nome.trim(),
+      nome_completo: nomeLimpo,
       email: `${cpfLimpo}@motorista.edutransporte`,
-      numero_celular: digitos(dados.telefone) || '81999990000',
-      senha: '12345',
-      carteira_conducao: (dados.cnh || '00000000000').trim(),
+      numero_celular: telefoneLimpo,
+      senha: senhaInformada,
+      carteira_conducao: cnhLimpa,
       cidade_id: cidadeId,
     });
 
@@ -1985,7 +2015,7 @@ export const cadastrarMotoristaAdmin = async (dados: {
       try {
         const veiculos = await apiClient.get<any[]>(`/veiculo?placa=eq.${encodeURIComponent(placaFormatada)}&select=placa`);
         if (!Array.isArray(veiculos.data) || veiculos.data.length === 0) {
-          await apiClient.post('/veiculo', { placa: placaFormatada, modelo: `Veículo de ${dados.nome.trim()}` });
+          await apiClient.post('/veiculo', { placa: placaFormatada, modelo: `Veículo de ${nomeLimpo}` });
         }
       } catch (err: any) {
         console.warn('Não foi possível cadastrar o veículo:', err?.message || err);
@@ -2006,13 +2036,13 @@ export const cadastrarMotoristaAdmin = async (dados: {
 
     return {
       success: true,
-      message: 'Motorista cadastrado com sucesso! Senha inicial: 12345',
+      message: 'Motorista cadastrado com sucesso! Ele já pode entrar no aplicativo usando o CPF e a senha definida.',
       motorista: {
         id: cpfLimpo,
-        nome: dados.nome.trim(),
+        nome: nomeLimpo,
         cpf: cpfLimpo,
-        telefone: dados.telefone,
-        cnh: dados.cnh,
+        telefone: formatarTelefone(telefoneLimpo),
+        cnh: cnhLimpa,
         placa: placaFormatada,
         rotaId: dados.rotaId,
         rotaNome: dados.rotaNome,
@@ -2020,7 +2050,7 @@ export const cadastrarMotoristaAdmin = async (dados: {
       },
     };
   } catch (err: any) {
-    if (err?.status === 409) return { success: false, message: 'Já existe um motorista com este CPF.' };
+    if (err?.status === 409) return { success: false, message: 'Já existe um motorista cadastrado com este CPF.' };
     return { success: false, message: getApiErrorMessage(err, 'Não foi possível cadastrar o motorista no servidor.') };
   }
 };

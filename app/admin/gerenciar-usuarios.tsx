@@ -16,6 +16,17 @@ import {
   getUsuariosAdmin, aprovarSolicitacao, recusarSolicitacao, cadastrarMotoristaAdmin,
   getAdminRotas, trocarRotaAluno, SolicitacaoAluno, MotoristaCadastrado, AlunoCadastrado 
 } from '../../services/api';
+import {
+  formatarCPF,
+  limparCPF,
+  validarCPFReal,
+  formatarTelefone,
+  validarTelefoneBR,
+  limparCNH,
+  validarCNH,
+  formatarPlaca,
+  validarPlaca,
+} from '../../services/cpf';
 
 const ROTAS_DISPONIVEIS = [
   'Linha 01 - Nassau Noturno',
@@ -52,9 +63,41 @@ export default function GerenciarUsuarios() {
     telefone: '',
     cnh: '',
     placa: '',
+    senha: '',
+    confirmarSenha: '',
     rotaNome: ROTAS_DISPONIVEIS[0],
   });
+  const [errosMotorista, setErrosMotorista] = useState<Record<string, string>>({});
+  const [mostrarSenhaMot, setMostrarSenhaMot] = useState(false);
+  const [mostrarConfirmarMot, setMostrarConfirmarMot] = useState(false);
   const [salvandoMotorista, setSalvandoMotorista] = useState(false);
+
+  const resetFormMotorista = (rotaPadrao?: string) => {
+    setNovoMotorista({
+      nome: '',
+      cpf: '',
+      telefone: '',
+      cnh: '',
+      placa: '',
+      senha: '',
+      confirmarSenha: '',
+      rotaNome: rotaPadrao !== undefined ? rotaPadrao : (rotasDisponiveis[0] || ''),
+    });
+    setErrosMotorista({});
+    setMostrarSenhaMot(false);
+    setMostrarConfirmarMot(false);
+  };
+
+  const atualizarCampoMotorista = (campo: keyof typeof novoMotorista, valor: string) => {
+    setNovoMotorista((prev) => ({ ...prev, [campo]: valor }));
+    if (errosMotorista[campo]) {
+      setErrosMotorista((prev) => {
+        const next = { ...prev };
+        delete next[campo];
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     carregarDados();
@@ -137,19 +180,55 @@ export default function GerenciarUsuarios() {
     );
   };
 
+  const validarFormularioMotorista = (): Record<string, string> => {
+    const erros: Record<string, string> = {};
+    const nomeTrim = novoMotorista.nome.trim();
+
+    if (nomeTrim.length < 3 || !/[A-Za-zÀ-ÿ]/.test(nomeTrim)) {
+      erros.nome = 'Informe o nome completo do motorista (mínimo 3 letras).';
+    }
+    if (!validarCPFReal(novoMotorista.cpf)) {
+      erros.cpf = 'CPF inválido. Informe os 11 dígitos de um CPF válido.';
+    }
+    if (!validarTelefoneBR(novoMotorista.telefone)) {
+      erros.telefone = 'Telefone inválido. Informe DDD + número (10 ou 11 dígitos).';
+    }
+    if (!validarCNH(novoMotorista.cnh)) {
+      erros.cnh = 'CNH inválida. Digite exatamente 11 dígitos numéricos válidos.';
+    }
+    if (!validarPlaca(novoMotorista.placa)) {
+      erros.placa = 'Placa inválida. Use ABC-1234 ou Mercosul ABC1D23.';
+    }
+    if (novoMotorista.senha.length < 6 || novoMotorista.senha.trim().length < 6) {
+      erros.senha = 'A senha deve ter no mínimo 6 caracteres.';
+    }
+    if (!novoMotorista.confirmarSenha) {
+      erros.confirmarSenha = 'Confirme a senha de acesso do motorista.';
+    } else if (novoMotorista.confirmarSenha !== novoMotorista.senha) {
+      erros.confirmarSenha = 'As senhas digitadas não coincidem.';
+    }
+
+    return erros;
+  };
+
   const handleCadastrarMotorista = async () => {
-    if (!novoMotorista.nome.trim() || !novoMotorista.cpf.trim() || !novoMotorista.placa.trim()) {
-      Alert.alert('Campos obrigatórios', 'Preencha Nome, CPF e Placa do veículo.');
+    const erros = validarFormularioMotorista();
+    setErrosMotorista(erros);
+
+    const primeiraMsg = Object.values(erros)[0];
+    if (primeiraMsg) {
+      Alert.alert('Verifique os dados do motorista', primeiraMsg);
       return;
     }
 
     setSalvandoMotorista(true);
     const res = await cadastrarMotoristaAdmin({
-      nome: novoMotorista.nome,
-      cpf: novoMotorista.cpf,
-      telefone: novoMotorista.telefone || '(81) 99999-0000',
-      cnh: novoMotorista.cnh || '00000000000',
-      placa: novoMotorista.placa,
+      nome: novoMotorista.nome.trim(),
+      cpf: limparCPF(novoMotorista.cpf),
+      telefone: novoMotorista.telefone,
+      cnh: limparCNH(novoMotorista.cnh),
+      placa: formatarPlaca(novoMotorista.placa),
+      senha: novoMotorista.senha,
       rotaId: '1',
       rotaNome: novoMotorista.rotaNome,
     });
@@ -157,15 +236,8 @@ export default function GerenciarUsuarios() {
 
     if (res.success) {
       setModalMotoristaVisivel(false);
-      setNovoMotorista({
-        nome: '',
-        cpf: '',
-        telefone: '',
-        cnh: '',
-        placa: '',
-        rotaNome: ROTAS_DISPONIVEIS[0],
-      });
-      Alert.alert('Sucesso', 'Motorista credenciado com sucesso!');
+      resetFormMotorista();
+      Alert.alert('Sucesso', res.message || 'Motorista credenciado com sucesso!');
       carregarDados();
     } else {
       Alert.alert('Erro', res.message);
@@ -321,7 +393,10 @@ export default function GerenciarUsuarios() {
                 <Text style={[styles.sectionHeading, { color: theme.text }]}>Motoristas da Frota</Text>
                 <TouchableOpacity 
                   style={[styles.btnAdd, { backgroundColor: theme.gold }]}
-                  onPress={() => setModalMotoristaVisivel(true)}
+                  onPress={() => {
+                    resetFormMotorista();
+                    setModalMotoristaVisivel(true);
+                  }}
                 >
                   <Feather name="plus" size={16} color="#1A253A" />
                   <Text style={styles.btnAddText}>Novo Motorista</Text>
@@ -504,65 +579,168 @@ export default function GerenciarUsuarios() {
               </Text>
 
               <TextInput 
-                style={[styles.modalInput, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: errosMotorista.nome ? '#EF4444' : theme.border,
+                    color: theme.text,
+                  },
+                ]}
                 placeholder="Nome Completo do Motorista *"
                 placeholderTextColor={theme.subtext}
                 value={novoMotorista.nome}
-                onChangeText={(v) => setNovoMotorista(prev => ({ ...prev, nome: v }))}
+                onChangeText={(v) => atualizarCampoMotorista('nome', v)}
               />
+              {errosMotorista.nome ? <Text style={styles.modalErrorText}>{errosMotorista.nome}</Text> : null}
 
               <TextInput 
-                style={[styles.modalInput, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                placeholder="CPF *"
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: errosMotorista.cpf ? '#EF4444' : theme.border,
+                    color: theme.text,
+                  },
+                ]}
+                placeholder="CPF (000.000.000-00) *"
                 keyboardType="number-pad"
+                maxLength={14}
                 placeholderTextColor={theme.subtext}
                 value={novoMotorista.cpf}
-                onChangeText={(v) => setNovoMotorista(prev => ({ ...prev, cpf: v }))}
+                onChangeText={(v) => atualizarCampoMotorista('cpf', formatarCPF(v))}
               />
+              {errosMotorista.cpf ? <Text style={styles.modalErrorText}>{errosMotorista.cpf}</Text> : null}
 
               <TextInput 
-                style={[styles.modalInput, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                placeholder="Telefone / WhatsApp"
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: errosMotorista.telefone ? '#EF4444' : theme.border,
+                    color: theme.text,
+                  },
+                ]}
+                placeholder="Telefone / WhatsApp ((00) 00000-0000) *"
                 keyboardType="phone-pad"
+                maxLength={15}
                 placeholderTextColor={theme.subtext}
                 value={novoMotorista.telefone}
-                onChangeText={(v) => setNovoMotorista(prev => ({ ...prev, telefone: v }))}
+                onChangeText={(v) => atualizarCampoMotorista('telefone', formatarTelefone(v))}
               />
+              {errosMotorista.telefone ? <Text style={styles.modalErrorText}>{errosMotorista.telefone}</Text> : null}
 
               <TextInput 
-                style={[styles.modalInput, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                placeholder="Número da CNH (Cat. D ou E)"
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: errosMotorista.cnh ? '#EF4444' : theme.border,
+                    color: theme.text,
+                  },
+                ]}
+                placeholder="Número da CNH (11 dígitos) *"
+                keyboardType="number-pad"
+                maxLength={11}
                 placeholderTextColor={theme.subtext}
                 value={novoMotorista.cnh}
-                onChangeText={(v) => setNovoMotorista(prev => ({ ...prev, cnh: v }))}
+                onChangeText={(v) => atualizarCampoMotorista('cnh', limparCNH(v))}
               />
+              {errosMotorista.cnh ? <Text style={styles.modalErrorText}>{errosMotorista.cnh}</Text> : null}
 
               <TextInput 
-                style={[styles.modalInput, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                placeholder="Placa do Veículo (ex: KJH-4020) *"
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: errosMotorista.placa ? '#EF4444' : theme.border,
+                    color: theme.text,
+                  },
+                ]}
+                placeholder="Placa (ABC-1234 ou Mercosul ABC1D23) *"
                 autoCapitalize="characters"
+                maxLength={8}
                 placeholderTextColor={theme.subtext}
                 value={novoMotorista.placa}
-                onChangeText={(v) => setNovoMotorista(prev => ({ ...prev, placa: v }))}
+                onChangeText={(v) => atualizarCampoMotorista('placa', formatarPlaca(v))}
               />
+              {errosMotorista.placa ? <Text style={styles.modalErrorText}>{errosMotorista.placa}</Text> : null}
+
+              <View
+                style={[
+                  styles.modalPasswordRow,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: errosMotorista.senha ? '#EF4444' : theme.border,
+                  },
+                ]}
+              >
+                <TextInput
+                  style={[styles.modalPasswordInput, { color: theme.text }]}
+                  placeholder="Senha de Acesso (mín. 6 caracteres) *"
+                  placeholderTextColor={theme.subtext}
+                  secureTextEntry={!mostrarSenhaMot}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={novoMotorista.senha}
+                  onChangeText={(v) => atualizarCampoMotorista('senha', v)}
+                />
+                <TouchableOpacity onPress={() => setMostrarSenhaMot((prev) => !prev)} style={{ padding: 6 }}>
+                  <Feather name={mostrarSenhaMot ? 'eye-off' : 'eye'} size={18} color={theme.subtext} />
+                </TouchableOpacity>
+              </View>
+              {errosMotorista.senha ? <Text style={styles.modalErrorText}>{errosMotorista.senha}</Text> : null}
+
+              <View
+                style={[
+                  styles.modalPasswordRow,
+                  {
+                    backgroundColor: theme.inputBg,
+                    borderColor: errosMotorista.confirmarSenha ? '#EF4444' : theme.border,
+                  },
+                ]}
+              >
+                <TextInput
+                  style={[styles.modalPasswordInput, { color: theme.text }]}
+                  placeholder="Confirmar Senha *"
+                  placeholderTextColor={theme.subtext}
+                  secureTextEntry={!mostrarConfirmarMot}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={novoMotorista.confirmarSenha}
+                  onChangeText={(v) => atualizarCampoMotorista('confirmarSenha', v)}
+                />
+                <TouchableOpacity onPress={() => setMostrarConfirmarMot((prev) => !prev)} style={{ padding: 6 }}>
+                  <Feather name={mostrarConfirmarMot ? 'eye-off' : 'eye'} size={18} color={theme.subtext} />
+                </TouchableOpacity>
+              </View>
+              {errosMotorista.confirmarSenha ? (
+                <Text style={styles.modalErrorText}>{errosMotorista.confirmarSenha}</Text>
+              ) : null}
 
               <Text style={[styles.modalLabel, { color: theme.text, marginTop: 8 }]}>Linha Designada:</Text>
-              {rotasDisponiveis.map((r) => (
-                <TouchableOpacity
-                  key={r}
-                  style={[
-                    styles.rotaOption, 
-                    { backgroundColor: theme.inputBg, borderColor: novoMotorista.rotaNome === r ? theme.gold : theme.border },
-                    novoMotorista.rotaNome === r && { borderWidth: 2 }
-                  ]}
-                  onPress={() => setNovoMotorista(prev => ({ ...prev, rotaNome: r }))}
-                >
-                  <FontAwesome5 name="route" size={13} color={novoMotorista.rotaNome === r ? theme.gold : theme.subtext} />
-                  <Text style={[styles.rotaOptionText, { color: novoMotorista.rotaNome === r ? theme.gold : theme.text }]}>
-                    {r}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {rotasDisponiveis.length === 0 ? (
+                <Text style={[styles.modalSub, { color: theme.subtext, marginBottom: 8 }]}>
+                  Nenhuma rota ativa cadastrada no momento (o motorista poderá ser vinculado depois).
+                </Text>
+              ) : (
+                rotasDisponiveis.map((r) => (
+                  <TouchableOpacity
+                    key={r}
+                    style={[
+                      styles.rotaOption, 
+                      { backgroundColor: theme.inputBg, borderColor: novoMotorista.rotaNome === r ? theme.gold : theme.border },
+                      novoMotorista.rotaNome === r && { borderWidth: 2 }
+                    ]}
+                    onPress={() => atualizarCampoMotorista('rotaNome', r)}
+                  >
+                    <FontAwesome5 name="route" size={13} color={novoMotorista.rotaNome === r ? theme.gold : theme.subtext} />
+                    <Text style={[styles.rotaOptionText, { color: novoMotorista.rotaNome === r ? theme.gold : theme.text }]}>
+                      {r}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
 
               <View style={styles.modalActions}>
                 <TouchableOpacity 
@@ -890,5 +1068,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 13,
     marginBottom: 10,
+  },
+  modalPasswordRow: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingLeft: 12,
+    paddingRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalPasswordInput: {
+    flex: 1,
+    fontSize: 13,
+    height: '100%',
+  },
+  modalErrorText: {
+    color: '#EF4444',
+    fontSize: 11,
+    marginTop: -6,
+    marginBottom: 10,
+    marginLeft: 2,
+    fontWeight: '600',
   },
 });
