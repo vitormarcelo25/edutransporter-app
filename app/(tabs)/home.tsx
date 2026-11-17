@@ -151,11 +151,12 @@ export default function HomeScreen() {
   };
 
   const CAPACIDADE_PADRAO_ONIBUS = 40;
+  const capacidadeOnibus = rota?.capacidadeVeiculo || CAPACIDADE_PADRAO_ONIBUS;
   const tipoRotaPadrao = rota?.tipo || 'Ida';
 
   // Lotação real: alunos que confirmaram presença hoje
   const progressLotacao = Math.min(
-    ((rota?.alunos.filter((a: any) => a.presente || a.confirmouPresenca).length || 0) / CAPACIDADE_PADRAO_ONIBUS) * 100,
+    ((rota?.alunos.filter((a: any) => a.presente || a.confirmouPresenca).length || 0) / capacidadeOnibus) * 100,
     100
   );
 
@@ -333,7 +334,7 @@ export default function HomeScreen() {
                 <View style={styles.lotacaoHeader}>
                   <Text style={[styles.barraLabel, { color: theme.subtext }]}>Vagas no ônibus</Text>
                   <Text style={[styles.barraLabel, { color: theme.text, fontWeight: 'bold' }]}>
-                    {40 - (rota?.alunos.filter((a: any) => a.presente).length || 0)} disp.
+                    {Math.max(capacidadeOnibus - (rota?.alunos.filter((a: any) => a.presente).length || 0), 0)} disp.
                   </Text>
                 </View>
                 <View style={[styles.lotacaoBar, { backgroundColor: theme.border }]}>
@@ -873,6 +874,13 @@ export default function HomeScreen() {
                   <FontAwesome5 name="route" size={22} color="#48BB78" />
                 </View>
                 <Text style={[styles.gridLabel, { color: theme.text }]}>Gerenciar Rotas</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/admin/gerenciar-veiculos')}>
+                <View style={[styles.iconCircle, { backgroundColor: 'rgba(245,166,35,0.12)' }]}>
+                  <FontAwesome5 name="bus-alt" size={21} color={theme.gold} />
+                </View>
+                <Text style={[styles.gridLabel, { color: theme.text }]}>Veículos</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/admin/gerenciar-avisos')}>

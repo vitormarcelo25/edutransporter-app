@@ -18,6 +18,7 @@ import {
   validarTelefoneBR,
   limparCNH,
   validarCNH,
+  limparPlaca,
   formatarPlaca,
   validarPlaca,
 } from './cpf';
@@ -199,6 +200,8 @@ export interface Rota {
   rotaId?: string;
   diasSemana?: string;
   motoristaCpf?: string;
+  veiculoPlaca?: string;
+  capacidadeVeiculo?: number;
 }
 
 export interface RotaResponse {
@@ -319,6 +322,16 @@ export interface AdminDashboardResponse {
   message?: string;
 }
 
+export interface Veiculo {
+  placa: string;
+  modelo: string;
+  capacidade: number;
+  tipo: 'Ônibus' | 'Micro-ônibus' | 'Van' | string;
+  ativo?: boolean;
+  rotaNome?: string;
+  motoristaNome?: string;
+}
+
 export interface CreateRotaInput {
   nome: string;
   escola: string;
@@ -327,6 +340,7 @@ export interface CreateRotaInput {
   diasSemana: string[];
   alunosIds: string[];
   motoristaId: string;
+  veiculoPlaca?: string;
 }
 
 export interface AdminRotasResponse {
@@ -1138,6 +1152,23 @@ const rotaNomeDaSessao = async (): Promise<string | undefined> => {
 
 const digitos = (v?: string | null) => String(v || '').replace(/\D/g, '');
 
+const extrairCapacidadeVeiculo = (v?: any): number => {
+  const num = Number(v?.capacidade);
+  if (Number.isFinite(num) && num > 0) return num;
+  const match = String(v?.modelo || '').match(/(\d+)\s*lugares?/i);
+  if (match && Number(match[1]) > 0) return Number(match[1]);
+  return 40;
+};
+
+const extrairTipoVeiculo = (v?: any): string => {
+  const raw = String(v?.tipo || '').trim();
+  if (raw) return raw;
+  const modeloLower = String(v?.modelo || '').toLowerCase();
+  if (modeloLower.includes('van')) return 'Van';
+  if (modeloLower.includes('micro')) return 'Micro-ônibus';
+  return 'Ônibus';
+};
+
 /** Converte uma linha da tabela "rota" (com rota_parada embutida) para o formato das telas. */
 const rotaDbParaRota = (r: any, alunos: RotaAluno[] = []): Rota => ({
   id: String(r?.id ?? ''),
@@ -1149,6 +1180,7 @@ const rotaDbParaRota = (r: any, alunos: RotaAluno[] = []): Rota => ({
   status: 'agendada',
   diasSemana: r?.dias_semana || '1,2,3,4,5',
   motoristaCpf: r?.motorista_cpf || undefined,
+  veiculoPlaca: r?.veiculo_placa || undefined,
   paradas: (Array.isArray(r?.rota_parada) ? [...r.rota_parada] : [])
     .sort((a: any, b: any) => Number(a.ordem) - Number(b.ordem))
     .map((p: any) => ({
@@ -1467,6 +1499,21 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
       } as RotaAluno;
     });
 
+    const veiculoPlaca = String(viagem.veiculoPlaca || dia.rota?.veiculo_placa || '').trim() || undefined;
+    let capacidadeVeiculo = 40;
+    if (veiculoPlaca) {
+      try {
+        const respVeic = await apiClient.get<any[]>('/veiculo?select=*');
+        const placaNorm = limparPlaca(veiculoPlaca);
+        const veicEncontrado = (Array.isArray(respVeic.data) ? respVeic.data : []).find(
+          (v: any) => limparPlaca(String(v?.placa || '')) === placaNorm
+        );
+        if (veicEncontrado) {
+          capacidadeVeiculo = extrairCapacidadeVeiculo(veicEncontrado);
+        }
+      } catch {}
+    }
+
     return {
       success: true,
       rota: {
@@ -1477,6 +1524,8 @@ export const getRotaDoDia = async (alunoId?: string): Promise<RotaResponse> => {
         horario: formatarHoraApi(viagem.horario) || '18:00',
         tipo: normalizarTipoViagem(viagem.tipo),
         status: normalizarStatusRota(viagem.status),
+        veiculoPlaca,
+        capacidadeVeiculo,
         paradas: paradas.length > 0 ? paradas : PARADAS_PADRAO_CARUARU,
         alunos,
       },
@@ -2096,12 +2145,39 @@ export const recusarSolicitacao = async (
   }
 };
 
+const resolverPlacaParaBanco = async (placaInformada: string, modeloFallback?: string): Promise<string | null> => {
+  const limpa = limparPlaca(placaInformada);
+  if (!limpa) return null;
+  const formatada = formatarPlaca(limpa);
+
+  try {
+    const resp = await apiClient.get<any[]>('/veiculo?select=placa,ativo');
+    const lista = Array.isArray(resp.data) ? resp.data : [];
+    const existente = lista.find((v: any) => limparPlaca(String(v?.placa || '')) === limpa);
+    if (existente?.placa) {
+      if (existente.ativo === false) {
+        await apiClient.patch(`/veiculo?placa=eq.${encodeURIComponent(String(existente.placa))}`, { ativo: true }).catch(() => {});
+      }
+      return String(existente.placa);
+    }
+
+    await apiClient.post('/veiculo', {
+      placa: formatada,
+      modelo: modeloFallback || `Veículo ${formatada}`,
+    });
+    return formatada;
+  } catch (err: any) {
+    console.warn('Não foi possível resolver veículo no banco:', err?.message || err);
+    return formatada;
+  }
+};
+
 export const cadastrarMotoristaAdmin = async (dados: {
   nome: string;
   cpf: string;
   telefone: string;
   cnh: string;
-  placa: string;
+  placa?: string;
   senha: string;
   rotaId: string;
   rotaNome: string;
@@ -2110,7 +2186,8 @@ export const cadastrarMotoristaAdmin = async (dados: {
   const cpfLimpo = digitos(dados.cpf);
   const telefoneLimpo = digitos(dados.telefone);
   const cnhLimpa = limparCNH(dados.cnh);
-  const placaFormatada = formatarPlaca(dados.placa);
+  const placaBruta = String(dados.placa || '').trim();
+  const placaFormatada = placaBruta ? formatarPlaca(placaBruta) : '';
   const senhaInformada = String(dados.senha || '');
 
   if (nomeLimpo.length < 3 || !/[A-Za-zÀ-ÿ]/.test(nomeLimpo)) {
@@ -2125,7 +2202,7 @@ export const cadastrarMotoristaAdmin = async (dados: {
   if (!validarCNH(cnhLimpa)) {
     return { success: false, message: 'CNH inválida. Deve conter exatamente 11 dígitos numéricos válidos.' };
   }
-  if (!validarPlaca(placaFormatada)) {
+  if (placaBruta && !validarPlaca(placaBruta)) {
     return { success: false, message: 'Placa do veículo inválida. Use o formato ABC-1234 ou Mercosul ABC1D23.' };
   }
   if (senhaInformada.trim().length < 6 || senhaInformada.length < 6) {
@@ -2147,23 +2224,16 @@ export const cadastrarMotoristaAdmin = async (dados: {
       cidade_id: cidadeId,
     });
 
-    if (placaFormatada) {
-      try {
-        const veiculos = await apiClient.get<any[]>(`/veiculo?placa=eq.${encodeURIComponent(placaFormatada)}&select=placa`);
-        if (!Array.isArray(veiculos.data) || veiculos.data.length === 0) {
-          await apiClient.post('/veiculo', { placa: placaFormatada, modelo: `Veículo de ${nomeLimpo}` });
-        }
-      } catch (err: any) {
-        console.warn('Não foi possível cadastrar o veículo:', err?.message || err);
-      }
-    }
+    const placaBanco = placaBruta
+      ? await resolverPlacaParaBanco(placaBruta, `Veículo de ${nomeLimpo}`)
+      : null;
 
-    // Motorista assume a rota escolhida
+    // Motorista assume a rota escolhida (e o veículo, se informado)
     if (dados.rotaNome) {
       try {
         await apiClient.patch(
           `/rota?nome=eq.${encodeURIComponent(dados.rotaNome)}`,
-          { motorista_cpf: cpfLimpo, ...(placaFormatada ? { veiculo_placa: placaFormatada } : {}) }
+          { motorista_cpf: cpfLimpo, ...(placaBanco ? { veiculo_placa: placaBanco } : {}) }
         );
       } catch (err: any) {
         console.warn('Não foi possível vincular o motorista à rota:', err?.message || err);
@@ -2179,7 +2249,7 @@ export const cadastrarMotoristaAdmin = async (dados: {
         cpf: cpfLimpo,
         telefone: formatarTelefone(telefoneLimpo),
         cnh: cnhLimpa,
-        placa: placaFormatada,
+        placa: placaBanco || placaFormatada,
         rotaId: dados.rotaId,
         rotaNome: dados.rotaNome,
         criadoEm: new Date().toLocaleDateString('pt-BR'),
@@ -2312,6 +2382,246 @@ export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
   };
 };
 
+const normalizarVeiculoDb = (
+  v: any,
+  rotasDb: any[] = [],
+  motoristasByCpf: Map<string, string> = new Map()
+): Veiculo => {
+  const placa = String(v?.placa || '');
+  const placaNorm = limparPlaca(placa);
+  const rota = rotasDb.find((r: any) => limparPlaca(String(r?.veiculo_placa || '')) === placaNorm);
+  const motCpf = digitos(rota?.motorista_cpf);
+  return {
+    placa,
+    modelo: String(v?.modelo || ''),
+    capacidade: extrairCapacidadeVeiculo(v),
+    tipo: extrairTipoVeiculo(v),
+    ativo: v?.ativo !== false,
+    rotaNome: rota?.nome || undefined,
+    motoristaNome: motCpf ? motoristasByCpf.get(motCpf) : undefined,
+  };
+};
+
+export const getVeiculos = async (): Promise<{
+  success: boolean;
+  veiculos: Veiculo[];
+  message?: string;
+}> => {
+  try {
+    const [veicResp, rotasDb, motResp] = await Promise.all([
+      apiClient.get<any[]>('/veiculo?select=*&order=placa.asc'),
+      lerRotasDb().catch(() => [] as any[]),
+      apiClient.get<any[]>('/motorista?select=cpf,nome_completo').catch(() => null),
+    ]);
+
+    const motoristasByCpf = new Map<string, string>();
+    if (Array.isArray(motResp?.data)) {
+      motResp.data.forEach((m: any) => {
+        const cpf = digitos(m?.cpf);
+        if (cpf && m?.nome_completo) motoristasByCpf.set(cpf, String(m.nome_completo));
+      });
+    }
+
+    const rawLista = Array.isArray(veicResp.data) ? veicResp.data : [];
+    const veiculos = rawLista
+      .filter((v: any) => v?.ativo !== false)
+      .map((v: any) => normalizarVeiculoDb(v, rotasDb, motoristasByCpf));
+
+    return { success: true, veiculos };
+  } catch (err: any) {
+    return {
+      success: false,
+      veiculos: [],
+      message: getApiErrorMessage(err, 'Não foi possível carregar os veículos da frota.'),
+    };
+  }
+};
+
+export const createVeiculo = async (dados: {
+  placa: string;
+  modelo: string;
+  capacidade: number;
+  tipo?: string;
+}): Promise<{ success: boolean; message: string; veiculo?: Veiculo }> => {
+  const placaLimpa = limparPlaca(dados.placa);
+  const placaFormatada = formatarPlaca(placaLimpa);
+  const modeloLimpo = String(dados.modelo || '').trim();
+  const capacidadeNum = Number(dados.capacidade);
+  const tipoLimpo = String(dados.tipo || 'Ônibus').trim() || 'Ônibus';
+
+  if (!validarPlaca(placaLimpa)) {
+    return { success: false, message: 'Placa inválida. Use o padrão ABC-1234 ou Mercosul ABC1D23.' };
+  }
+  if (modeloLimpo.length < 2) {
+    return { success: false, message: 'Informe o modelo ou identificação do veículo.' };
+  }
+  if (!Number.isFinite(capacidadeNum) || capacidadeNum < 1 || capacidadeNum > 120) {
+    return { success: false, message: 'Informe uma capacidade válida (entre 1 e 120 lugares).' };
+  }
+
+  try {
+    const existentes = await apiClient.get<any[]>('/veiculo?select=*').catch(() => null);
+    const jaExiste = (Array.isArray(existentes?.data) ? existentes.data : []).find(
+      (v: any) => limparPlaca(String(v?.placa || '')) === placaLimpa
+    );
+
+    if (jaExiste) {
+      if (jaExiste.ativo === false) {
+        return updateVeiculo(String(jaExiste.placa), {
+          modelo: modeloLimpo,
+          capacidade: capacidadeNum,
+          tipo: tipoLimpo,
+          reativar: true,
+        });
+      }
+      return { success: false, message: `Já existe um veículo cadastrado com a placa ${jaExiste.placa}.` };
+    }
+
+    let respData: any = null;
+    try {
+      const resp = await apiClient.post<any[]>(
+        '/veiculo',
+        {
+          placa: placaFormatada,
+          modelo: modeloLimpo,
+          capacidade: Math.round(capacidadeNum),
+          tipo: tipoLimpo,
+          ativo: true,
+        },
+        PREFER_RETORNO
+      );
+      respData = Array.isArray(resp.data) ? resp.data[0] : resp.data;
+    } catch (errCol: any) {
+      // Fallback automático caso a migration de colunas extras ainda não tenha sido executada no Supabase
+      if (errCol?.status === 400 || String(errCol?.message || '').includes('schema cache')) {
+        const respFallback = await apiClient.post<any[]>(
+          '/veiculo',
+          {
+            placa: placaFormatada,
+            modelo: `${modeloLimpo} - ${Math.round(capacidadeNum)} Lugares`,
+          },
+          PREFER_RETORNO
+        );
+        respData = Array.isArray(respFallback.data) ? respFallback.data[0] : respFallback.data;
+      } else {
+        throw errCol;
+      }
+    }
+
+    const salvo = normalizarVeiculoDb(
+      respData || { placa: placaFormatada, modelo: modeloLimpo, capacidade: Math.round(capacidadeNum), tipo: tipoLimpo }
+    );
+    return {
+      success: true,
+      message: 'Veículo cadastrado com sucesso na frota!',
+      veiculo: salvo,
+    };
+  } catch (err: any) {
+    if (err?.status === 409) {
+      return { success: false, message: 'Já existe um veículo cadastrado com esta placa.' };
+    }
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível cadastrar o veículo.') };
+  }
+};
+
+export const updateVeiculo = async (
+  placaAtual: string,
+  dados: { modelo: string; capacidade: number; tipo?: string; reativar?: boolean }
+): Promise<{ success: boolean; message: string; veiculo?: Veiculo }> => {
+  const modeloLimpo = String(dados.modelo || '').trim();
+  const capacidadeNum = Number(dados.capacidade);
+  const tipoLimpo = String(dados.tipo || 'Ônibus').trim() || 'Ônibus';
+
+  if (!placaAtual) return { success: false, message: 'Placa do veículo não informada.' };
+  if (modeloLimpo.length < 2) return { success: false, message: 'Informe o modelo do veículo.' };
+  if (!Number.isFinite(capacidadeNum) || capacidadeNum < 1 || capacidadeNum > 120) {
+    return { success: false, message: 'Capacidade inválida (entre 1 e 120 lugares).' };
+  }
+
+  try {
+    let respData: any = null;
+    try {
+      const resp = await apiClient.patch<any[]>(
+        `/veiculo?placa=eq.${encodeURIComponent(placaAtual)}`,
+        {
+          modelo: modeloLimpo,
+          capacidade: Math.round(capacidadeNum),
+          tipo: tipoLimpo,
+          ...(dados.reativar ? { ativo: true } : {}),
+        },
+        PREFER_RETORNO
+      );
+      respData = Array.isArray(resp.data) ? resp.data[0] : resp.data;
+    } catch (errCol: any) {
+      if (errCol?.status === 400 || String(errCol?.message || '').includes('schema cache')) {
+        const respFallback = await apiClient.patch<any[]>(
+          `/veiculo?placa=eq.${encodeURIComponent(placaAtual)}`,
+          { modelo: `${modeloLimpo} - ${Math.round(capacidadeNum)} Lugares` },
+          PREFER_RETORNO
+        );
+        respData = Array.isArray(respFallback.data) ? respFallback.data[0] : respFallback.data;
+      } else {
+        throw errCol;
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Veículo atualizado com sucesso!',
+      veiculo: normalizarVeiculoDb(
+        respData || { placa: placaAtual, modelo: modeloLimpo, capacidade: Math.round(capacidadeNum), tipo: tipoLimpo }
+      ),
+    };
+  } catch (err: any) {
+    if (err?.status === 401 || err?.status === 403) {
+      return {
+        success: false,
+        message: 'Permissão de edição ainda não liberada no banco. Execute o arquivo supabase/migrations/20261117010000_veiculos_frota.sql no Supabase.',
+      };
+    }
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível atualizar o veículo.') };
+  }
+};
+
+export const deleteVeiculo = async (placa: string): Promise<{ success: boolean; message: string }> => {
+  if (!placa) return { success: false, message: 'Placa não informada.' };
+  try {
+    await apiClient
+      .patch(`/rota?veiculo_placa=eq.${encodeURIComponent(placa)}`, { veiculo_placa: null })
+      .catch(() => {});
+
+    try {
+      await apiClient.delete(`/veiculo?placa=eq.${encodeURIComponent(placa)}`);
+      return { success: true, message: 'Veículo removido da frota!' };
+    } catch (errDel: any) {
+      // Se histórico de viagens referenciar a placa (409 FK), tenta inativar mantendo integridade
+      if (errDel?.status === 409) {
+        try {
+          await apiClient.patch(`/veiculo?placa=eq.${encodeURIComponent(placa)}`, { ativo: false });
+          return {
+            success: true,
+            message: 'Veículo arquivado (possui viagens no histórico) e desvinculado das rotas.',
+          };
+        } catch {
+          return {
+            success: false,
+            message: 'Este veículo possui histórico de viagens e foi desvinculado das rotas. Execute a migration 20261117010000_veiculos_frota.sql para permitir arquivamento.',
+          };
+        }
+      }
+      if (errDel?.status === 401 || errDel?.status === 403) {
+        return {
+          success: false,
+          message: 'Permissão de exclusão ainda não liberada no banco. Execute o arquivo supabase/migrations/20261117010000_veiculos_frota.sql no Supabase.',
+        };
+      }
+      throw errDel;
+    }
+  } catch (err: any) {
+    return { success: false, message: getApiErrorMessage(err, 'Não foi possível remover o veículo.') };
+  }
+};
+
 export const getAdminRotas = async (): Promise<AdminRotasResponse> => {
   try {
     const [rotasDb, vinculos] = await Promise.all([
@@ -2365,6 +2675,10 @@ export const createRota = async (data: CreateRotaInput & { paradas?: Parada[] })
   if (paradas.length === 0) return { success: false, message: 'Marque pelo menos uma parada.' };
 
   try {
+    const placaBanco = data.veiculoPlaca
+      ? await resolverPlacaParaBanco(data.veiculoPlaca)
+      : null;
+
     const resp = await apiClient.post<any[]>(
       '/rota',
       {
@@ -2374,6 +2688,7 @@ export const createRota = async (data: CreateRotaInput & { paradas?: Parada[] })
         tipo: data.tipo === 'Volta' ? 'volta' : 'ida',
         dias_semana: diasSemanaParaDb(data.diasSemana),
         motorista_cpf: digitos(data.motoristaId) || null,
+        veiculo_placa: placaBanco,
         ativo: true,
       },
       PREFER_RETORNO
@@ -2446,6 +2761,11 @@ export const updateRota = async (
     if (data.tipo !== undefined) payload.tipo = data.tipo === 'Volta' ? 'volta' : 'ida';
     if (data.diasSemana !== undefined) payload.dias_semana = diasSemanaParaDb(data.diasSemana);
     if (data.motoristaId !== undefined) payload.motorista_cpf = digitos(data.motoristaId) || null;
+    if (data.veiculoPlaca !== undefined) {
+      payload.veiculo_placa = data.veiculoPlaca
+        ? await resolverPlacaParaBanco(data.veiculoPlaca)
+        : null;
+    }
 
     const resp = await apiClient.patch<any[]>(
       `/rota?id=eq.${encodeURIComponent(String(rotaId))}`,
@@ -2480,6 +2800,7 @@ export const updateRota = async (
       if (payload.horario) patchViagem.horario = payload.horario;
       if (payload.tipo) patchViagem.tipo = payload.tipo;
       if ('motorista_cpf' in payload && payload.motorista_cpf) patchViagem.motorista_cpf = payload.motorista_cpf;
+      if ('veiculo_placa' in payload && payload.veiculo_placa) patchViagem.veiculo_placa = payload.veiculo_placa;
       if (Object.keys(patchViagem).length > 0) {
         await apiClient.patch(`/viagem?rota_id=eq.${rotaDb.id}&data=eq.${hoje}&status=eq.AGENDADA`, patchViagem);
       }

@@ -14,7 +14,7 @@ import { useRouter, Stack } from 'expo-router';
 import { useApp } from '../_layout';
 import { 
   getUsuariosAdmin, aprovarSolicitacao, recusarSolicitacao, cadastrarMotoristaAdmin,
-  getAdminRotas, trocarRotaAluno, SolicitacaoAluno, MotoristaCadastrado, AlunoCadastrado 
+  getAdminRotas, getVeiculos, trocarRotaAluno, SolicitacaoAluno, MotoristaCadastrado, AlunoCadastrado, Veiculo 
 } from '../../services/api';
 import {
   formatarCPF,
@@ -24,6 +24,7 @@ import {
   validarTelefoneBR,
   limparCNH,
   validarCNH,
+  limparPlaca,
   formatarPlaca,
   validarPlaca,
 } from '../../services/cpf';
@@ -71,6 +72,8 @@ export default function GerenciarUsuarios() {
   const [mostrarSenhaMot, setMostrarSenhaMot] = useState(false);
   const [mostrarConfirmarMot, setMostrarConfirmarMot] = useState(false);
   const [salvandoMotorista, setSalvandoMotorista] = useState(false);
+  const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<Veiculo[]>([]);
+  const [placaPersonalizada, setPlacaPersonalizada] = useState(false);
 
   const resetFormMotorista = (rotaPadrao?: string) => {
     setNovoMotorista({
@@ -86,6 +89,7 @@ export default function GerenciarUsuarios() {
     setErrosMotorista({});
     setMostrarSenhaMot(false);
     setMostrarConfirmarMot(false);
+    setPlacaPersonalizada(false);
   };
 
   const atualizarCampoMotorista = (campo: keyof typeof novoMotorista, valor: string) => {
@@ -116,12 +120,18 @@ export default function GerenciarUsuarios() {
     }
 
     try {
-      const rotasRes = await getAdminRotas();
+      const [rotasRes, veicRes] = await Promise.all([
+        getAdminRotas(),
+        getVeiculos().catch(() => null),
+      ]);
       // Só rotas que existem no banco (as de exemplo não podem ser vinculadas)
       if (rotasRes.success) {
         const nomes = (rotasRes.rotas || []).map((r) => r.nome);
         setRotasDisponiveis(nomes);
         setNovoMotorista((prev) => ({ ...prev, rotaNome: nomes[0] || '' }));
+      }
+      if (veicRes?.success && Array.isArray(veicRes.veiculos)) {
+        setVeiculosDisponiveis(veicRes.veiculos);
       }
     } catch {}
   };
@@ -196,7 +206,9 @@ export default function GerenciarUsuarios() {
     if (!validarCNH(novoMotorista.cnh)) {
       erros.cnh = 'CNH inválida. Digite exatamente 11 dígitos numéricos válidos.';
     }
-    if (!validarPlaca(novoMotorista.placa)) {
+    if (placaPersonalizada && !novoMotorista.placa.trim()) {
+      erros.placa = 'Digite a placa ou escolha "Vincular depois".';
+    } else if (novoMotorista.placa.trim() && !validarPlaca(novoMotorista.placa)) {
       erros.placa = 'Placa inválida. Use ABC-1234 ou Mercosul ABC1D23.';
     }
     if (novoMotorista.senha.length < 6 || novoMotorista.senha.trim().length < 6) {
@@ -222,12 +234,15 @@ export default function GerenciarUsuarios() {
     }
 
     setSalvandoMotorista(true);
+    const placaEnvio = novoMotorista.placa.trim()
+      ? (placaPersonalizada ? formatarPlaca(novoMotorista.placa) : novoMotorista.placa.trim())
+      : '';
     const res = await cadastrarMotoristaAdmin({
       nome: novoMotorista.nome.trim(),
       cpf: limparCPF(novoMotorista.cpf),
       telefone: novoMotorista.telefone,
       cnh: limparCNH(novoMotorista.cnh),
-      placa: formatarPlaca(novoMotorista.placa),
+      placa: placaEnvio,
       senha: novoMotorista.senha,
       rotaId: '1',
       rotaNome: novoMotorista.rotaNome,
@@ -648,23 +663,131 @@ export default function GerenciarUsuarios() {
               />
               {errosMotorista.cnh ? <Text style={styles.modalErrorText}>{errosMotorista.cnh}</Text> : null}
 
-              <TextInput 
-                style={[
-                  styles.modalInput,
-                  {
-                    backgroundColor: theme.inputBg,
-                    borderColor: errosMotorista.placa ? '#EF4444' : theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                placeholder="Placa (ABC-1234 ou Mercosul ABC1D23) *"
-                autoCapitalize="characters"
-                maxLength={8}
-                placeholderTextColor={theme.subtext}
-                value={novoMotorista.placa}
-                onChangeText={(v) => atualizarCampoMotorista('placa', formatarPlaca(v))}
-              />
-              {errosMotorista.placa ? <Text style={styles.modalErrorText}>{errosMotorista.placa}</Text> : null}
+              <Text style={[styles.modalLabel, { color: theme.text, marginTop: 4 }]}>
+                Veículo da Frota (opcional):
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingBottom: 10 }}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    setPlacaPersonalizada(false);
+                    atualizarCampoMotorista('placa', '');
+                  }}
+                  style={[
+                    styles.rotaOption,
+                    {
+                      marginBottom: 0,
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      backgroundColor: !placaPersonalizada && !novoMotorista.placa ? theme.gold : theme.inputBg,
+                      borderColor: !placaPersonalizada && !novoMotorista.placa ? theme.gold : theme.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 'bold',
+                      color: !placaPersonalizada && !novoMotorista.placa ? '#1A253A' : theme.text,
+                    }}
+                  >
+                    Vincular depois
+                  </Text>
+                </TouchableOpacity>
+
+                {veiculosDisponiveis.map((veic) => {
+                  const selecionado =
+                    !placaPersonalizada &&
+                    novoMotorista.placa !== '' &&
+                    limparPlaca(veic.placa) === limparPlaca(novoMotorista.placa);
+                  return (
+                    <TouchableOpacity
+                      key={veic.placa}
+                      onPress={() => {
+                        setPlacaPersonalizada(false);
+                        atualizarCampoMotorista('placa', veic.placa);
+                      }}
+                      style={[
+                        styles.rotaOption,
+                        {
+                          marginBottom: 0,
+                          paddingVertical: 8,
+                          paddingHorizontal: 12,
+                          backgroundColor: selecionado ? theme.gold : theme.inputBg,
+                          borderColor: selecionado ? theme.gold : theme.border,
+                        },
+                      ]}
+                    >
+                      <FontAwesome5
+                        name="bus"
+                        size={12}
+                        color={selecionado ? '#1A253A' : theme.subtext}
+                      />
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 'bold',
+                          color: selecionado ? '#1A253A' : theme.text,
+                        }}
+                      >
+                        {veic.placa} • {veic.capacidade} lug.
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setPlacaPersonalizada(true);
+                    atualizarCampoMotorista('placa', '');
+                  }}
+                  style={[
+                    styles.rotaOption,
+                    {
+                      marginBottom: 0,
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      backgroundColor: placaPersonalizada ? theme.gold : theme.inputBg,
+                      borderColor: placaPersonalizada ? theme.gold : theme.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 'bold',
+                      color: placaPersonalizada ? '#1A253A' : theme.text,
+                    }}
+                  >
+                    Outra placa...
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+
+              {placaPersonalizada && (
+                <>
+                  <TextInput 
+                    style={[
+                      styles.modalInput,
+                      {
+                        backgroundColor: theme.inputBg,
+                        borderColor: errosMotorista.placa ? '#EF4444' : theme.border,
+                        color: theme.text,
+                      },
+                    ]}
+                    placeholder="Placa (ABC-1234 ou Mercosul ABC1D23)"
+                    autoCapitalize="characters"
+                    maxLength={8}
+                    placeholderTextColor={theme.subtext}
+                    value={novoMotorista.placa}
+                    onChangeText={(v) => atualizarCampoMotorista('placa', formatarPlaca(v))}
+                  />
+                  {errosMotorista.placa ? <Text style={styles.modalErrorText}>{errosMotorista.placa}</Text> : null}
+                </>
+              )}
 
               <View
                 style={[

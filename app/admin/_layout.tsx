@@ -18,6 +18,7 @@ export default function AdminLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="gerenciar-usuarios" />
       <Stack.Screen name="gerenciar-rotas" />
+      <Stack.Screen name="gerenciar-veiculos" />
       <Stack.Screen name="gerenciar-avisos" />
       <Stack.Screen name="gerenciar-feriados" />
       <Stack.Screen name="gerar-convites" />

@@ -30,12 +30,15 @@ import {
   updateRota,
   deleteRota,
   getUsuariosAdmin,
+  getVeiculos,
   AdminRotasResponse,
   MotoristaCadastrado,
+  Veiculo,
   Rota,
   Parada,
   PARADAS_PADRAO_CARUARU,
 } from '../../services/api';
+import { limparPlaca } from '../../services/cpf';
 import { Alert } from '@/components/Alert';
 import MapViewComponent from '@/components/MapViewComponent';
 
@@ -184,6 +187,8 @@ export default function GerenciarRotas() {
   const [diasSemanaSelecionados, setDiasSemanaSelecionados] = useState<string[]>(['Seg', 'Ter', 'Qua', 'Qui', 'Sex']);
   const [motoristaCpfSelecionado, setMotoristaCpfSelecionado] = useState<string>('');
   const [motoristasDisponiveis, setMotoristasDisponiveis] = useState<MotoristaCadastrado[]>([]);
+  const [veiculoPlacaSelecionado, setVeiculoPlacaSelecionado] = useState<string>('');
+  const [veiculosDisponiveis, setVeiculosDisponiveis] = useState<Veiculo[]>([]);
 
   // Paradas georreferenciadas marcadas no mapa
   const [paradasMarcadas, setParadasMarcadas] = useState<Parada[]>([
@@ -229,13 +234,17 @@ export default function GerenciarRotas() {
 
   const loadRotas = async () => {
     setLoading(true);
-    const [result, usuarios] = await Promise.all([
+    const [result, usuarios, frota] = await Promise.all([
       getAdminRotas(),
       getUsuariosAdmin().catch(() => null),
+      getVeiculos().catch(() => null),
     ]);
     setLoading(false);
     if (usuarios?.success && Array.isArray(usuarios.motoristas)) {
       setMotoristasDisponiveis(usuarios.motoristas);
+    }
+    if (frota?.success && Array.isArray(frota.veiculos)) {
+      setVeiculosDisponiveis(frota.veiculos);
     }
     if (result.success && result.rotas) {
       setRotas(result.rotas);
@@ -256,6 +265,7 @@ export default function GerenciarRotas() {
     setTipo('Ida');
     setDiasSemanaSelecionados(['Seg', 'Ter', 'Qua', 'Qui', 'Sex']);
     setMotoristaCpfSelecionado('');
+    setVeiculoPlacaSelecionado('');
     setParadasMarcadas([
       {
         id: `p-${Date.now()}-1`,
@@ -295,6 +305,7 @@ export default function GerenciarRotas() {
     setTipo(rota.tipo || 'Ida');
     setDiasSemanaSelecionados(parseDiasSemanaFromDb(rota.diasSemana));
     setMotoristaCpfSelecionado(String(rota.motoristaCpf || '').replace(/\D/g, ''));
+    setVeiculoPlacaSelecionado(rota.veiculoPlaca || '');
     const paradasAtuais = Array.isArray(rota.paradas) ? rota.paradas : [];
     setParadasMarcadas(paradasAtuais);
     if (paradasAtuais[0]?.latitude && paradasAtuais[0]?.longitude) {
@@ -455,6 +466,7 @@ export default function GerenciarRotas() {
           paradas: paradasFinais,
           diasSemana: diasSemanaSelecionados,
           motoristaId: motoristaCpfSelecionado,
+          veiculoPlaca: veiculoPlacaSelecionado,
         })
       : await createRota({
           nome: nomeRota.trim(),
@@ -465,6 +477,7 @@ export default function GerenciarRotas() {
           diasSemana: diasSemanaSelecionados,
           alunosIds: [],
           motoristaId: motoristaCpfSelecionado,
+          veiculoPlaca: veiculoPlacaSelecionado,
         });
 
     setSalvando(false);
@@ -659,6 +672,12 @@ export default function GerenciarRotas() {
                       {motoristasDisponiveis.find(
                         (m) => String(m.cpf).replace(/\D/g, '') === String(rota.motoristaCpf || '').replace(/\D/g, '')
                       )?.nome || (rota.motoristaCpf ? rota.motoristaCpf : 'Sem motorista')}
+                    </Text>
+                  </View>
+                  <View style={styles.detailItem}>
+                    <FontAwesome5 name="bus" size={12} color={theme.subtext} />
+                    <Text style={[styles.detailText, { color: theme.subtext, fontSize: 11 }]} numberOfLines={1}>
+                      {rota.veiculoPlaca || 'Sem veículo'}
                     </Text>
                   </View>
                 </View>
@@ -1128,6 +1147,78 @@ export default function GerenciarRotas() {
                             }}
                           >
                             {mot.nome}{mot.placa ? ` (${mot.placa})` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
+                    <Text style={[styles.inputLabel, { color: theme.subtext, marginBottom: 0 }]}>
+                      Veículo da Linha:
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setModalCriarVisivel(false);
+                        router.push('/admin/gerenciar-veiculos');
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: theme.gold }}>
+                        Gerenciar veículos ➔
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 8, paddingVertical: 6 }}
+                  >
+                    <TouchableOpacity
+                      onPress={() => setVeiculoPlacaSelecionado('')}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        backgroundColor: !veiculoPlacaSelecionado ? theme.gold : theme.inputBg,
+                        borderColor: !veiculoPlacaSelecionado ? theme.gold : theme.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 'bold',
+                          color: !veiculoPlacaSelecionado ? '#1A253A' : theme.text,
+                        }}
+                      >
+                        Sem veículo
+                      </Text>
+                    </TouchableOpacity>
+                    {veiculosDisponiveis.map((veic) => {
+                      const selecionado =
+                        veiculoPlacaSelecionado !== '' &&
+                        limparPlaca(veic.placa) === limparPlaca(veiculoPlacaSelecionado);
+                      return (
+                        <TouchableOpacity
+                          key={veic.placa}
+                          onPress={() => setVeiculoPlacaSelecionado(veic.placa)}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            backgroundColor: selecionado ? theme.gold : theme.inputBg,
+                            borderColor: selecionado ? theme.gold : theme.border,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 'bold',
+                              color: selecionado ? '#1A253A' : theme.text,
+                            }}
+                          >
+                            {veic.placa} • {veic.capacidade} lug. ({veic.tipo})
                           </Text>
                         </TouchableOpacity>
                       );

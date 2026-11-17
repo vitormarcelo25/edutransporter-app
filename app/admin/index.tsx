@@ -18,6 +18,7 @@ import { Alert } from '@/components/Alert';
 const MENU_ITEMS = [
   { id: 'usuarios', title: 'Usuários & Solicitações', subtitle: 'Aprovar alunos e cadastrar motoristas', icon: 'users', color: '#7DD3FC', route: '/admin/gerenciar-usuarios', badge: 'Novas' },
   { id: 'rotas', title: 'Gerenciar Rotas', subtitle: 'Criar, editar e excluir rotas', icon: 'route', color: '#4ADE80', route: '/admin/gerenciar-rotas' },
+  { id: 'veiculos', title: 'Gerenciar Veículos', subtitle: 'Cadastrar ônibus, vans e capacidade', icon: 'bus', color: '#F59E0B', route: '/admin/gerenciar-veiculos' },
   { id: 'avisos', title: 'Gerenciar Avisos', subtitle: 'Enviar avisos aos usuários', icon: 'bell', color: '#FBBF24', route: '/admin/gerenciar-avisos' },
   { id: 'feriados', title: 'Feriados', subtitle: 'Dias sem transporte', icon: 'calendar', color: '#8B7CFF', route: '/admin/gerenciar-feriados' },
   { id: 'convites', title: 'Gerar Convites', subtitle: 'Códigos para novos admins', icon: 'key', color: '#F87171', route: '/admin/gerar-convites' },
@@ -146,6 +147,8 @@ export default function AdminDashboard() {
                 <View style={[styles.menuIcon, { backgroundColor: item.color + '22' }]}>
                   {item.icon === 'route' ? (
                     <FontAwesome5 name="route" size={20} color={item.color} />
+                  ) : item.icon === 'bus' ? (
+                    <FontAwesome5 name="bus-alt" size={19} color={item.color} />
                   ) : item.icon === 'users' ? (
                     <FontAwesome5 name="users" size={18} color={item.color} />
                   ) : (
