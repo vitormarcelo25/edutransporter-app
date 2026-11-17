@@ -2255,24 +2255,26 @@ export const getUsuariosAdmin = async (): Promise<{
 export const getAdminDashboard = async (): Promise<AdminDashboardResponse> => {
   try {
     // Monta as estatísticas a partir dos endpoints reais do backend
-    const [alunosResp, motoristasResp, avisosResp, viagensResp] = await Promise.all([
+    const [alunosResp, motoristasResp, avisosResp, rotasDb] = await Promise.all([
       apiClient.get<any[]>('/aluno?select=cpf,status'),
       apiClient.get<any[]>('/motorista?select=cpf'),
       apiClient.get<any[]>('/aviso?select=id,ativo'),
-      getViagensResp(),
+      lerRotasDb().catch(() => null),
     ]);
 
     const alunos = Array.isArray(alunosResp.data) ? alunosResp.data : [];
     const motoristas = Array.isArray(motoristasResp.data) ? motoristasResp.data : [];
     const avisos = (Array.isArray(avisosResp.data) ? avisosResp.data : []).filter((a: any) => a?.ativo !== false);
-    const viagens = Array.isArray(viagensResp.data) ? viagensResp.data : [];
+    const totalRotasAtivas = Array.isArray(rotasDb)
+      ? rotasDb.length
+      : (await getViagensResp()).data.length;
 
     return {
       success: true,
       stats: {
         totalAlunos: alunos.filter((a: any) => String(a.status || '').toUpperCase() === 'APROVADO').length,
         totalMotoristas: motoristas.length,
-        totalRotasAtivas: viagens.length,
+        totalRotasAtivas,
         totalAvisos: avisos.length,
       },
     };
