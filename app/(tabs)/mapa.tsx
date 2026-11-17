@@ -35,6 +35,11 @@ import {
   formatarDistanciaLegivel,
   estimarTempoMinutos,
 } from '@/services/api';
+import {
+  Coord,
+  fetchRoadRoute,
+  densificarPolilinha,
+} from '@/services/routeGeometry';
 import { useGeofencing } from '@/hooks/useGeofencing';
 import { Alert } from '@/components/Alert';
 import MapViewComponent from '../../components/MapViewComponent';
@@ -69,6 +74,7 @@ export default function Mapa() {
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simStep, setSimStep] = useState(0);
+  const [roadPath, setRoadPath] = useState<Coord[]>([]);
 
   // Estado específico de Monitoramento de Frota (Admin)
   const [frotaAdmin, setFrotaAdmin] = useState<FrotaMonitoramentoItem[]>([]);
@@ -103,11 +109,25 @@ export default function Mapa() {
     }, [userData?.id, isAdmin])
   );
 
-  // Seleciona a primeira parada por padrão quando a rota carrega
+  // Seleciona a primeira parada por padrão e busca o traçado real das ruas quando a rota carrega
   useEffect(() => {
     if (rota?.paradas && rota.paradas.length > 0 && !selectedParada) {
       setSelectedParada(rota.paradas[0]);
     }
+    if (!rota?.paradas || rota.paradas.length < 2) {
+      setRoadPath([]);
+      return;
+    }
+
+    let cancelled = false;
+    fetchRoadRoute(rota.paradas).then((pts) => {
+      if (!cancelled && pts.length >= 2) {
+        setRoadPath(pts);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [rota, selectedParada]);
 
   // Polling regular da posição do ônibus (Admin monitora frota; Aluno/Motorista monitora rota do dia)
@@ -152,41 +172,32 @@ export default function Mapa() {
     };
   }, [isAdmin, rota?.id, isSimulating]);
 
-  // Modo de simulação: anima o ônibus percorrendo as paradas sequencialmente
+  // Modo de simulação: anima o ônibus percorrendo as ruas reais até as paradas
   useEffect(() => {
     if (!isSimulating || !rota?.paradas || rota.paradas.length < 2) return;
 
-    // Gera pontos intermediários entre as paradas para movimento suave
-    const points: { latitude: number; longitude: number }[] = [];
-    const paradas = rota.paradas;
-
-    for (let i = 0; i < paradas.length - 1; i++) {
-      const p1 = paradas[i];
-      const p2 = paradas[i + 1];
-      const stepsBetween = 4;
-      for (let s = 0; s < stepsBetween; s++) {
-        const t = s / stepsBetween;
-        points.push({
-          latitude: p1.latitude + (p2.latitude - p1.latitude) * t,
-          longitude: p1.longitude + (p2.longitude - p1.longitude) * t,
-        });
-      }
-    }
-    // Adiciona o destino final
-    const last = paradas[paradas.length - 1];
-    points.push({ latitude: last.latitude, longitude: last.longitude });
+    const basePath: Coord[] =
+      roadPath.length >= 2
+        ? roadPath
+        : rota.paradas.map((p) => ({ latitude: Number(p.latitude), longitude: Number(p.longitude) }));
+    const points = densificarPolilinha(basePath, 28);
+    if (points.length < 2) return;
 
     const simTimer = setInterval(() => {
       setSimStep((prev) => {
         const next = (prev + 1) % points.length;
         const currentCoord = points[next];
-        setBusLocation(currentCoord);
+        setBusLocation({
+          latitude: currentCoord.latitude,
+          longitude: currentCoord.longitude,
+          timestamp: Date.now(),
+        });
         return next;
       });
-    }, 2500);
+    }, 350);
 
     return () => clearInterval(simTimer);
-  }, [isSimulating, rota]);
+  }, [isSimulating, rota, roadPath]);
 
   const centralizarMapaNaRota = (
     rotaAlvo: Rota,
@@ -468,6 +479,7 @@ export default function Mapa() {
         isDark={isDark}
         hasPermission={hasPermission}
         rota={rota}
+        roadPath={roadPath}
         busLocation={busLocation}
         INITIAL_REGION={INITIAL_REGION}
         darkMapStyle={darkMapStyle}
