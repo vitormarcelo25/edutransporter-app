@@ -1783,6 +1783,142 @@ export const getGpsPosition = async (rotaId: string): Promise<{ success: boolean
   return { success: false, message: 'Posição do ônibus ainda não disponível' };
 };
 
+export interface FrotaMonitoramentoItem {
+  rotaFixaId: string;
+  viagemId: string | null;
+  rota: Rota;
+  motoristaNome: string;
+  motoristaCpf: string;
+  veiculoPlaca: string;
+  alunosQtd: number;
+  gpsPosicao: { latitude: number; longitude: number; timestamp?: number } | null;
+}
+
+/**
+ * Carrega todas as linhas ativas da frota com viagem do dia, motorista, placa,
+ * quantidade de alunos e última coordenada GPS conhecida para o painel do Admin.
+ */
+export const getFrotaMonitoramentoAdmin = async (): Promise<{
+  success: boolean;
+  itens: FrotaMonitoramentoItem[];
+  message?: string;
+}> => {
+  try {
+    const hoje = hojeLocalIso();
+    const [rotasDb, viagensHojeResp, motoristasResp, vinculosResp] = await Promise.all([
+      lerRotasDb(),
+      apiClient.get<any[]>(`/viagem?data=eq.${encodeURIComponent(hoje)}&select=*&order=id.desc`).catch(() => null),
+      apiClient.get<any[]>('/motorista?select=cpf,nome_completo,numero_celular').catch(() => null),
+      apiClient.get<any[]>('/aluno_rota?select=rota_id').catch(() => null),
+    ]);
+
+    const viagensHoje = Array.isArray(viagensHojeResp?.data) ? viagensHojeResp.data : [];
+    const motoristas = Array.isArray(motoristasResp?.data) ? motoristasResp.data : [];
+    const vinculos = Array.isArray(vinculosResp?.data) ? vinculosResp.data : [];
+
+    const motoristaByCpf = new Map<string, { nome: string; cpf: string }>();
+    motoristas.forEach((m: any) => {
+      const cpf = digitos(m?.cpf);
+      if (cpf) {
+        motoristaByCpf.set(cpf, { nome: m?.nome_completo || 'Motorista', cpf });
+      }
+    });
+
+    const alunosByRota = new Map<string, number>();
+    vinculos.forEach((v: any) => {
+      const rid = String(v?.rota_id ?? '');
+      if (rid) alunosByRota.set(rid, (alunosByRota.get(rid) || 0) + 1);
+    });
+
+    const viagemByRota = new Map<string, any>();
+    viagensHoje.forEach((v: any) => {
+      const rid = String(v?.rota_id ?? '');
+      if (!rid) return;
+      const atual = viagemByRota.get(rid);
+      if (!atual) {
+        viagemByRota.set(rid, v);
+        return;
+      }
+      const statusNovo = normalizarStatusRota(v?.status);
+      const statusAtual = normalizarStatusRota(atual?.status);
+      if (statusNovo === 'em_andamento' && statusAtual !== 'em_andamento') {
+        viagemByRota.set(rid, v);
+      }
+    });
+
+    const viagemIdsHoje = Array.from(
+      new Set(
+        Array.from(viagemByRota.values())
+          .map((v: any) => Number(v?.id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+
+    const gpsByViagem = new Map<string, { latitude: number; longitude: number; timestamp?: number }>();
+    if (viagemIdsHoje.length > 0) {
+      try {
+        const gpsResp = await apiClient.get<any[]>(
+          `/viagem_gps?viagem_id=in.(${viagemIdsHoje.join(',')})&select=*`
+        );
+        if (Array.isArray(gpsResp?.data)) {
+          gpsResp.data.forEach((g: any) => {
+            if (g?.viagem_id != null && g?.latitude != null && g?.longitude != null) {
+              gpsByViagem.set(String(g.viagem_id), {
+                latitude: Number(g.latitude),
+                longitude: Number(g.longitude),
+                timestamp: g.atualizado_em ? new Date(g.atualizado_em).getTime() : undefined,
+              });
+            }
+          });
+        }
+      } catch {
+        // segue sem coordenadas GPS em nuvem
+      }
+    }
+
+    const itens: FrotaMonitoramentoItem[] = rotasDb.map((r: any) => {
+      const rotaFixaId = String(r.id);
+      const viagemHoje = viagemByRota.get(rotaFixaId);
+      const viagemId = viagemHoje?.id ? String(viagemHoje.id) : null;
+      const rotaObj = rotaDbParaRota(r);
+      rotaObj.id = viagemId || `rota_${rotaFixaId}`;
+      rotaObj.rotaId = rotaFixaId;
+      rotaObj.status = viagemHoje ? normalizarStatusRota(viagemHoje.status) : 'agendada';
+
+      const motCpf = digitos(viagemHoje?.motorista_cpf || r.motorista_cpf);
+      const motInfo = motoristaByCpf.get(motCpf);
+      const veiculoPlaca = String(viagemHoje?.veiculo_placa || r.veiculo_placa || '').trim();
+
+      return {
+        rotaFixaId,
+        viagemId,
+        rota: rotaObj,
+        motoristaNome: motInfo?.nome || (motCpf ? `CPF ${motCpf}` : 'Sem motorista'),
+        motoristaCpf: motCpf,
+        veiculoPlaca,
+        alunosQtd: alunosByRota.get(rotaFixaId) || 0,
+        gpsPosicao: viagemId ? gpsByViagem.get(viagemId) || null : null,
+      };
+    });
+
+    const prioridadeStatus: Record<Rota['status'], number> = {
+      em_andamento: 0,
+      agendada: 1,
+      encerrada: 2,
+    };
+    itens.sort((a, b) => prioridadeStatus[a.rota.status] - prioridadeStatus[b.rota.status]);
+
+    return { success: true, itens };
+  } catch (err: any) {
+    console.warn('Erro ao carregar monitoramento da frota:', err?.message || err);
+    return {
+      success: false,
+      itens: [],
+      message: getApiErrorMessage(err, 'Não foi possível carregar o monitoramento da frota.'),
+    };
+  }
+};
+
 export const getHistorico = async (): Promise<HistoricoResponse> => {
   try {
     // Endpoint real do backend: /api/viagens

@@ -17,15 +17,18 @@ import {
   ActivityIndicator,
   ScrollView,
   Linking,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { useApp } from '../_layout';
 import {
   getRotaDoDia,
   getGpsPosition,
+  getFrotaMonitoramentoAdmin,
+  FrotaMonitoramentoItem,
   Rota,
   Parada,
   calcularDistanciaMetros,
@@ -54,7 +57,9 @@ const darkMapStyle = [
 ];
 
 export default function Mapa() {
+  const router = useRouter();
   const { theme, userRole, userData, isDark } = useApp();
+  const isAdmin = userRole === 'admin';
   const mapRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
   const [rota, setRota] = useState<Rota | null>(null);
@@ -64,6 +69,17 @@ export default function Mapa() {
   const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simStep, setSimStep] = useState(0);
+
+  // Estado específico de Monitoramento de Frota (Admin)
+  const [frotaAdmin, setFrotaAdmin] = useState<FrotaMonitoramentoItem[]>([]);
+  const [selectedRotaFixaId, setSelectedRotaFixaId] = useState<string>('');
+  const selectedRotaFixaIdRef = useRef<string>('');
+  const [fleetModalVisible, setFleetModalVisible] = useState(false);
+
+  const activeFleetItem = useMemo(() => {
+    if (!isAdmin || frotaAdmin.length === 0) return null;
+    return frotaAdmin.find((f) => f.rotaFixaId === selectedRotaFixaId) || frotaAdmin[0];
+  }, [isAdmin, frotaAdmin, selectedRotaFixaId]);
 
   // Hook de Geofencing para detecção do aluno
   const {
@@ -78,13 +94,13 @@ export default function Mapa() {
   // Inicializa mapa e rota
   useEffect(() => {
     initMaps();
-  }, []);
+  }, [isAdmin]);
 
   // Recarrega a rota ao receber foco na tela do Mapa
   useFocusEffect(
     React.useCallback(() => {
-      initMaps();
-    }, [userData?.id])
+      initMaps(true);
+    }, [userData?.id, isAdmin])
   );
 
   // Seleciona a primeira parada por padrão quando a rota carrega
@@ -94,13 +110,31 @@ export default function Mapa() {
     }
   }, [rota, selectedParada]);
 
-  // Polling regular da posição do ônibus quando não estiver em modo de simulação
+  // Polling regular da posição do ônibus (Admin monitora frota; Aluno/Motorista monitora rota do dia)
   useEffect(() => {
-    if (!rota || isSimulating) return;
+    if (isSimulating) return;
+    if (!isAdmin && !rota) return;
     let ativo = true;
 
     const buscarOnibus = async () => {
       try {
+        if (isAdmin) {
+          const frotaRes = await getFrotaMonitoramentoAdmin();
+          if (!ativo || !frotaRes.success) return;
+          setFrotaAdmin(frotaRes.itens);
+          const alvo =
+            frotaRes.itens.find((f) => f.rotaFixaId === selectedRotaFixaIdRef.current) ||
+            frotaRes.itens[0];
+          if (alvo) {
+            selectedRotaFixaIdRef.current = alvo.rotaFixaId;
+            setSelectedRotaFixaId(alvo.rotaFixaId);
+            setRota(alvo.rota);
+            setBusLocation(alvo.gpsPosicao || null);
+          }
+          return;
+        }
+
+        if (!rota) return;
         const res = await getGpsPosition(rota.id);
         if (ativo && res.success && res.position) {
           setBusLocation(res.position);
@@ -111,12 +145,12 @@ export default function Mapa() {
     };
 
     buscarOnibus();
-    const interval = setInterval(buscarOnibus, 4000);
+    const interval = setInterval(buscarOnibus, isAdmin ? 5000 : 4000);
     return () => {
       ativo = false;
       clearInterval(interval);
     };
-  }, [rota, isSimulating]);
+  }, [isAdmin, rota?.id, isSimulating]);
 
   // Modo de simulação: anima o ônibus percorrendo as paradas sequencialmente
   useEffect(() => {
@@ -154,45 +188,88 @@ export default function Mapa() {
     return () => clearInterval(simTimer);
   }, [isSimulating, rota]);
 
-  const initMaps = async () => {
-    setLoading(true);
+  const centralizarMapaNaRota = (
+    rotaAlvo: Rota,
+    gpsAlvo?: { latitude: number; longitude: number } | null
+  ) => {
+    const primeira = rotaAlvo.paradas?.[0];
+    const pontoFoco = gpsAlvo?.latitude != null ? gpsAlvo : primeira;
+    if (!pontoFoco) return;
+
+    if (mapRef.current?.fitToCoordinates && rotaAlvo.paradas && rotaAlvo.paradas.length > 1) {
+      const coords = rotaAlvo.paradas.map((p) => ({
+        latitude: Number(p.latitude),
+        longitude: Number(p.longitude),
+      }));
+      if (gpsAlvo?.latitude != null) {
+        coords.push({ latitude: Number(gpsAlvo.latitude), longitude: Number(gpsAlvo.longitude) });
+      }
+      mapRef.current.fitToCoordinates(coords);
+    } else if (mapRef.current?.animateToRegion) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: Number(pontoFoco.latitude),
+          longitude: Number(pontoFoco.longitude),
+          latitudeDelta: 0.04,
+          longitudeDelta: 0.04,
+        },
+        600
+      );
+    } else if (mapRef.current?.panTo) {
+      mapRef.current.panTo(Number(pontoFoco.latitude), Number(pontoFoco.longitude));
+    }
+  };
+
+  const initMaps = async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     try {
+      if (isAdmin) {
+        const frotaRes = await getFrotaMonitoramentoAdmin();
+        if (frotaRes.success) {
+          setFrotaAdmin(frotaRes.itens);
+          const alvo =
+            frotaRes.itens.find((f) => f.rotaFixaId === selectedRotaFixaIdRef.current) ||
+            frotaRes.itens[0];
+          if (alvo) {
+            selectedRotaFixaIdRef.current = alvo.rotaFixaId;
+            setSelectedRotaFixaId(alvo.rotaFixaId);
+            setRota(alvo.rota);
+            setBusLocation(alvo.gpsPosicao || null);
+            setSelectedParada(alvo.rota.paradas?.[0] || null);
+            if (!silencioso) {
+              centralizarMapaNaRota(alvo.rota, alvo.gpsPosicao);
+            }
+          } else {
+            setRota(null);
+            setBusLocation(null);
+          }
+        }
+        if (!silencioso) setLoading(false);
+        return;
+      }
+
       const result = await getRotaDoDia(userRole === 'aluno' ? userData?.id : undefined);
       if (result.success && result.rota) {
         setRota(result.rota);
         if (result.rota.paradas && result.rota.paradas.length > 0) {
           setSelectedParada(result.rota.paradas[0]);
-
-          // Recentraliza o mapa na nova rota
-          if (mapRef.current?.animateToRegion) {
-            mapRef.current.animateToRegion(
-              {
-                latitude: Number(result.rota.paradas[0].latitude),
-                longitude: Number(result.rota.paradas[0].longitude),
-                latitudeDelta: 0.04,
-                longitudeDelta: 0.04,
-              },
-              600
-            );
-          } else if (mapRef.current?.fitToCoordinates && result.rota.paradas.length > 1) {
-            mapRef.current.fitToCoordinates(
-              result.rota.paradas.map((p) => ({
-                latitude: Number(p.latitude),
-                longitude: Number(p.longitude),
-              }))
-            );
-          } else if (mapRef.current?.panTo) {
-            mapRef.current.panTo(
-              Number(result.rota.paradas[0].latitude),
-              Number(result.rota.paradas[0].longitude)
-            );
-          }
+          centralizarMapaNaRota(result.rota);
         }
       }
     } catch (error) {
       console.log('Erro ao carregar rota');
     }
-    setLoading(false);
+    if (!silencioso) setLoading(false);
+  };
+
+  const handleSelecionarLinhaFrota = (item: FrotaMonitoramentoItem) => {
+    setFleetModalVisible(false);
+    selectedRotaFixaIdRef.current = item.rotaFixaId;
+    setSelectedRotaFixaId(item.rotaFixaId);
+    setRota(item.rota);
+    setBusLocation(item.gpsPosicao || null);
+    setSelectedParada(item.rota.paradas?.[0] || null);
+    centralizarMapaNaRota(item.rota, item.gpsPosicao);
   };
 
   // Cálculo da distância e tempo estimado do ônibus até a parada selecionada
@@ -229,6 +306,11 @@ export default function Mapa() {
           longitudeDelta: 0.008,
         },
         800
+      );
+    } else if (isAdmin) {
+      Alert.alert(
+        'GPS Offline',
+        'O motorista desta linha ainda não iniciou a viagem ou não transmitiu coordenadas hoje.'
       );
     } else {
       Alert.alert(
@@ -337,9 +419,32 @@ export default function Mapa() {
   };
 
   const handleRefresh = async () => {
-    await initMaps();
-    await refreshGeo();
+    await initMaps(true);
+    if (!isAdmin) {
+      await refreshGeo();
+    }
     fitFullRoute();
+  };
+
+  const formatarHoraGps = (timestamp?: number) => {
+    if (!timestamp) return null;
+    return new Date(timestamp).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  };
+
+  const corStatusRota = (status?: Rota['status']) => {
+    if (status === 'em_andamento') return '#10B981';
+    if (status === 'encerrada') return '#64748B';
+    return '#F59E0B';
+  };
+
+  const labelStatusRota = (status?: Rota['status']) => {
+    if (status === 'em_andamento') return 'Em andamento';
+    if (status === 'encerrada') return 'Encerrada';
+    return 'Agendada';
   };
 
   if (loading) {
@@ -371,60 +476,105 @@ export default function Mapa() {
         onSelectBus={focusBus}
       />
 
-      {/* Top Header Flutuante com Status e Controle de Simulação */}
+      {/* Top Header Flutuante: Monitoramento de Frota (Admin) ou Status + Simulação (Aluno/Motorista) */}
       <View style={styles.topHeader}>
-        <View style={[styles.statusCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusIndicator,
-                { backgroundColor: busLocation || isSimulating ? '#10B981' : '#F59E0B' },
-              ]}
-            />
-            <View style={{ flex: 1, marginLeft: 8 }}>
-              <Text style={[styles.statusTitle, { color: theme.text }]} numberOfLines={1}>
-                {rota?.nome || 'Linha Escolar'}
-              </Text>
-              <Text style={[styles.statusSubtitle, { color: theme.subtext }]} numberOfLines={1}>
-                {isSimulating
-                  ? 'Simulação ao vivo ativa'
-                  : busLocation
-                  ? 'Ônibus em trânsito'
-                  : 'Aguardando início do trajeto'}
-              </Text>
-            </View>
-          </View>
-        </View>
+        {isAdmin ? (
+          <>
+            <TouchableOpacity
+              style={[styles.statusCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onPress={() => setFleetModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.statusRow}>
+                <View
+                  style={[
+                    styles.statusIndicator,
+                    { backgroundColor: busLocation ? '#10B981' : corStatusRota(activeFleetItem?.rota.status) },
+                  ]}
+                />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={[styles.statusTitle, { color: theme.text }]} numberOfLines={1}>
+                    {activeFleetItem?.rota.nome || 'Monitoramento da Frota'}
+                  </Text>
+                  <Text style={[styles.statusSubtitle, { color: theme.subtext }]} numberOfLines={1}>
+                    {activeFleetItem
+                      ? `Mot: ${activeFleetItem.motoristaNome}${activeFleetItem.veiculoPlaca ? ` • ${activeFleetItem.veiculoPlaca}` : ''}`
+                      : 'Nenhuma linha ativa cadastrada'}
+                  </Text>
+                </View>
+                <Feather name="chevron-down" size={16} color={theme.gold} style={{ marginLeft: 6 }} />
+              </View>
+            </TouchableOpacity>
 
-        {/* Botão de Toggle de Simulação (Ideal para testes e apresentações) */}
-        <TouchableOpacity
-          style={[
-            styles.simToggleBtn,
-            {
-              backgroundColor: isSimulating ? theme.gold : theme.card,
-              borderColor: isSimulating ? theme.gold : theme.border,
-            },
-          ]}
-          onPress={toggleSimulacao}
-        >
-          <Feather
-            name={isSimulating ? 'pause' : 'play'}
-            size={16}
-            color={isSimulating ? '#1A253A' : theme.gold}
-          />
-          <Text
-            style={[
-              styles.simToggleText,
-              { color: isSimulating ? '#1A253A' : theme.text },
-            ]}
-          >
-            {isSimulating ? 'Pausar Teste' : 'Simular'}
-          </Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.simToggleBtn,
+                { backgroundColor: theme.card, borderColor: theme.border },
+              ]}
+              onPress={() => setFleetModalVisible(true)}
+            >
+              <Feather name="layers" size={15} color={theme.gold} />
+              <Text style={[styles.simToggleText, { color: theme.text }]}>
+                Frota ({frotaAdmin.length})
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={[styles.statusCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.statusRow}>
+                <View
+                  style={[
+                    styles.statusIndicator,
+                    { backgroundColor: busLocation || isSimulating ? '#10B981' : '#F59E0B' },
+                  ]}
+                />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={[styles.statusTitle, { color: theme.text }]} numberOfLines={1}>
+                    {rota?.nome || 'Linha Escolar'}
+                  </Text>
+                  <Text style={[styles.statusSubtitle, { color: theme.subtext }]} numberOfLines={1}>
+                    {isSimulating
+                      ? 'Simulação ao vivo ativa'
+                      : busLocation
+                      ? 'Ônibus em trânsito'
+                      : 'Aguardando início do trajeto'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Botão de Toggle de Simulação (Ideal para testes e apresentações) */}
+            <TouchableOpacity
+              style={[
+                styles.simToggleBtn,
+                {
+                  backgroundColor: isSimulating ? theme.gold : theme.card,
+                  borderColor: isSimulating ? theme.gold : theme.border,
+                },
+              ]}
+              onPress={toggleSimulacao}
+            >
+              <Feather
+                name={isSimulating ? 'pause' : 'play'}
+                size={16}
+                color={isSimulating ? '#1A253A' : theme.gold}
+              />
+              <Text
+                style={[
+                  styles.simToggleText,
+                  { color: isSimulating ? '#1A253A' : theme.text },
+                ]}
+              >
+                {isSimulating ? 'Pausar Teste' : 'Simular'}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
-      {/* Banner de Geofencing / Alerta de Proximidade */}
-      {(isBusApproachingSelected || isWithinGeofence) && (
+      {/* Banner de Geofencing / Alerta de Proximidade (apenas Aluno) */}
+      {userRole === 'aluno' && (isBusApproachingSelected || isWithinGeofence) && (
         <View style={[styles.geofenceAlert, { backgroundColor: '#10B981' }]}>
           <Feather name="bell" size={18} color="#FFFFFF" />
           <Text style={styles.geofenceAlertText}>
@@ -443,13 +593,15 @@ export default function Mapa() {
           <FontAwesome5 name="bus" size={16} color={busLocation ? theme.gold : theme.subtext} />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.floatingBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-          onPress={focusUser}
-          accessibilityLabel="Minha Localização"
-        >
-          <Feather name="crosshair" size={18} color={theme.gold} />
-        </TouchableOpacity>
+        {!isAdmin && (
+          <TouchableOpacity
+            style={[styles.floatingBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={focusUser}
+            accessibilityLabel="Minha Localização"
+          >
+            <Feather name="crosshair" size={18} color={theme.gold} />
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={[styles.floatingBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
@@ -487,59 +639,129 @@ export default function Mapa() {
           <View style={[styles.sheetHandleBar, { backgroundColor: theme.border }]} />
         </TouchableOpacity>
 
-        {/* Resumo da Parada Selecionada */}
+        {/* Resumo Operacional (Admin) ou Parada Selecionada (Aluno/Motorista) */}
         <View style={styles.sheetHeader}>
-          <View style={{ flex: 1 }}>
-            <View style={styles.badgeRow}>
-              <View style={[styles.pillBadge, { backgroundColor: 'rgba(245, 166, 35, 0.15)' }]}>
-                <Feather name="map-pin" size={12} color={theme.gold} />
-                <Text style={[styles.pillBadgeText, { color: theme.gold }]}>
-                  {selectedParada?.nome.toLowerCase().includes('escola') ||
-                  selectedParada?.nome.toLowerCase().includes('nassau')
-                    ? 'Destino Final'
-                    : 'Ponto de Parada'}
+          {isAdmin ? (
+            <>
+              <View style={{ flex: 1 }}>
+                <View style={styles.badgeRow}>
+                  <View
+                    style={[
+                      styles.pillBadge,
+                      { backgroundColor: `${corStatusRota(activeFleetItem?.rota.status)}22` },
+                    ]}
+                  >
+                    <Feather
+                      name="radio"
+                      size={12}
+                      color={corStatusRota(activeFleetItem?.rota.status)}
+                    />
+                    <Text
+                      style={[
+                        styles.pillBadgeText,
+                        { color: corStatusRota(activeFleetItem?.rota.status) },
+                      ]}
+                    >
+                      {labelStatusRota(activeFleetItem?.rota.status)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.etaBadgeText, { color: theme.subtext }]}>
+                    {busLocation?.timestamp
+                      ? `GPS: ${formatarHoraGps(busLocation.timestamp)}`
+                      : busLocation
+                      ? 'GPS conectado'
+                      : 'Sem sinal GPS hoje'}
+                  </Text>
+                </View>
+
+                <Text style={[styles.paradaNome, { color: theme.text }]} numberOfLines={1}>
+                  {activeFleetItem?.rota.nome || 'Nenhuma linha ativa'}
+                </Text>
+                <Text style={[styles.paradaEndereco, { color: theme.subtext }]} numberOfLines={1}>
+                  {activeFleetItem
+                    ? `${activeFleetItem.rota.escola || 'Sem destino'} • Mot: ${activeFleetItem.motoristaNome}`
+                    : 'Cadastre uma rota em Gerenciar Rotas'}
                 </Text>
               </View>
-              {busLocation && (
-                <Text style={[styles.etaBadgeText, { color: theme.subtext }]}>
-                  Chegada em {busMetrics.tempoTexto}
+
+              <TouchableOpacity
+                style={[styles.navBtn, { backgroundColor: theme.gold }]}
+                onPress={() => router.push('/admin/gerenciar-rotas')}
+              >
+                <Feather name="sliders" size={16} color="#1A253A" />
+                <Text style={styles.navBtnText}>Gerenciar</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <View style={{ flex: 1 }}>
+                <View style={styles.badgeRow}>
+                  <View style={[styles.pillBadge, { backgroundColor: 'rgba(245, 166, 35, 0.15)' }]}>
+                    <Feather name="map-pin" size={12} color={theme.gold} />
+                    <Text style={[styles.pillBadgeText, { color: theme.gold }]}>
+                      {selectedParada?.nome.toLowerCase().includes('escola') ||
+                      selectedParada?.nome.toLowerCase().includes('nassau')
+                        ? 'Destino Final'
+                        : 'Ponto de Parada'}
+                    </Text>
+                  </View>
+                  {busLocation && (
+                    <Text style={[styles.etaBadgeText, { color: theme.subtext }]}>
+                      Chegada em {busMetrics.tempoTexto}
+                    </Text>
+                  )}
+                </View>
+
+                <Text style={[styles.paradaNome, { color: theme.text }]} numberOfLines={1}>
+                  {selectedParada?.nome || 'Selecione uma parada no mapa'}
                 </Text>
+                <Text style={[styles.paradaEndereco, { color: theme.subtext }]} numberOfLines={1}>
+                  {selectedParada?.endereco || 'Toque em qualquer marcador para ver os detalhes'}
+                </Text>
+              </View>
+
+              {/* Botão de Navegar no Google Maps Externo */}
+              {selectedParada && (
+                <TouchableOpacity
+                  style={[styles.navBtn, { backgroundColor: theme.gold }]}
+                  onPress={() => handleOpenExternalGps(selectedParada)}
+                >
+                  <Feather name="navigation" size={18} color="#1A253A" />
+                  <Text style={styles.navBtnText}>Como Chegar</Text>
+                </TouchableOpacity>
               )}
-            </View>
-
-            <Text style={[styles.paradaNome, { color: theme.text }]} numberOfLines={1}>
-              {selectedParada?.nome || 'Selecione uma parada no mapa'}
-            </Text>
-            <Text style={[styles.paradaEndereco, { color: theme.subtext }]} numberOfLines={1}>
-              {selectedParada?.endereco || 'Toque em qualquer marcador para ver os detalhes'}
-            </Text>
-          </View>
-
-          {/* Botão de Navegar no Google Maps Externo */}
-          {selectedParada && (
-            <TouchableOpacity
-              style={[styles.navBtn, { backgroundColor: theme.gold }]}
-              onPress={() => handleOpenExternalGps(selectedParada)}
-            >
-              <Feather name="navigation" size={18} color="#1A253A" />
-              <Text style={styles.navBtnText}>Como Chegar</Text>
-            </TouchableOpacity>
+            </>
           )}
         </View>
 
-        {/* Estatísticas Rápidas (Distância Ônibus -> Parada & Destino) */}
+        {/* Estatísticas Rápidas */}
         <View style={[styles.statsRow, { borderTopColor: theme.border }]}>
           <View style={styles.statItem}>
-            <Text style={[styles.statLabel, { color: theme.subtext }]}>Distância do Ônibus</Text>
-            <Text style={[styles.statValue, { color: theme.gold }]}>
-              {busMetrics.distanciaTexto}
+            <Text style={[styles.statLabel, { color: theme.subtext }]}>
+              {isAdmin ? 'Sinal GPS' : 'Distância do Ônibus'}
+            </Text>
+            <Text
+              style={[
+                styles.statValue,
+                { color: isAdmin ? (busLocation ? '#10B981' : theme.subtext) : theme.gold },
+              ]}
+            >
+              {isAdmin
+                ? busLocation
+                  ? formatarHoraGps(busLocation.timestamp) || 'Ao vivo'
+                  : 'Offline'
+                : busMetrics.distanciaTexto}
             </Text>
           </View>
           <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
           <View style={styles.statItem}>
-            <Text style={[styles.statLabel, { color: theme.subtext }]}>Horário Previsto</Text>
+            <Text style={[styles.statLabel, { color: theme.subtext }]}>
+              {isAdmin ? 'Saída / Veículo' : 'Horário Previsto'}
+            </Text>
             <Text style={[styles.statValue, { color: theme.text }]}>
-              {rota?.horario || '17:45'}
+              {isAdmin
+                ? `${rota?.horario || '--:--'}${activeFleetItem?.veiculoPlaca ? ` • ${activeFleetItem.veiculoPlaca}` : ''}`
+                : rota?.horario || '17:45'}
             </Text>
           </View>
           <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
@@ -547,10 +769,14 @@ export default function Mapa() {
             style={styles.statItem}
             onPress={() => setIsTimelineOpen(!isTimelineOpen)}
           >
-            <Text style={[styles.statLabel, { color: theme.subtext }]}>Paradas da Linha</Text>
+            <Text style={[styles.statLabel, { color: theme.subtext }]}>
+              {isAdmin ? 'Paradas / Alunos' : 'Paradas da Linha'}
+            </Text>
             <View style={styles.toggleRow}>
               <Text style={[styles.statValue, { color: theme.gold }]}>
-                {rota?.paradas.length || 0} pontos
+                {isAdmin
+                  ? `${rota?.paradas.length || 0} pts • ${activeFleetItem?.alunosQtd ?? 0} al.`
+                  : `${rota?.paradas.length || 0} pontos`}
               </Text>
               <Feather
                 name={isTimelineOpen ? 'chevron-down' : 'chevron-up'}
@@ -619,12 +845,14 @@ export default function Mapa() {
                     </Text>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.timelineActionBtn}
-                    onPress={() => handleOpenExternalGps(item)}
-                  >
-                    <Feather name="external-link" size={16} color={theme.gold} />
-                  </TouchableOpacity>
+                  {!isAdmin && (
+                    <TouchableOpacity
+                      style={styles.timelineActionBtn}
+                      onPress={() => handleOpenExternalGps(item)}
+                    >
+                      <Feather name="external-link" size={16} color={theme.gold} />
+                    </TouchableOpacity>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -632,6 +860,90 @@ export default function Mapa() {
           </ScrollView>
         )}
       </View>
+
+      {/* Modal Seletor de Frota (Exclusivo Admin) */}
+      <Modal
+        visible={fleetModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFleetModalVisible(false)}
+      >
+        <View style={styles.fleetModalOverlay}>
+          <View style={[styles.fleetModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.fleetModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.fleetModalTitle, { color: theme.text }]}>
+                  Monitoramento da Frota
+                </Text>
+                <Text style={[styles.fleetModalSub, { color: theme.subtext }]}>
+                  {frotaAdmin.filter((f) => f.rota.status === 'em_andamento').length} em andamento • {frotaAdmin.length} linha(s) ativa(s)
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setFleetModalVisible(false)} style={{ padding: 6 }}>
+                <Feather name="x" size={22} color={theme.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 380, marginTop: 10 }}>
+              {frotaAdmin.length === 0 ? (
+                <Text style={[styles.fleetEmptyText, { color: theme.subtext }]}>
+                  Nenhuma linha ativa encontrada no sistema.
+                </Text>
+              ) : (
+                frotaAdmin.map((item) => {
+                  const selecionada = item.rotaFixaId === activeFleetItem?.rotaFixaId;
+                  const corStatus = corStatusRota(item.rota.status);
+                  return (
+                    <TouchableOpacity
+                      key={item.rotaFixaId}
+                      style={[
+                        styles.fleetItemCard,
+                        {
+                          backgroundColor: theme.inputBg,
+                          borderColor: selecionada ? theme.gold : theme.border,
+                        },
+                        selecionada && { borderWidth: 2 },
+                      ]}
+                      onPress={() => handleSelecionarLinhaFrota(item)}
+                    >
+                      <View style={styles.fleetItemTop}>
+                        <Text style={[styles.fleetItemName, { color: selecionada ? theme.gold : theme.text }]} numberOfLines={1}>
+                          {item.rota.nome}
+                        </Text>
+                        <View style={[styles.fleetStatusBadge, { backgroundColor: `${corStatus}22` }]}>
+                          <Text style={[styles.fleetStatusText, { color: corStatus }]}>
+                            {labelStatusRota(item.rota.status)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text style={[styles.fleetItemMeta, { color: theme.subtext }]} numberOfLines={1}>
+                        {item.rota.escola || 'Sem destino'} • Saída {item.rota.horario} • {item.alunosQtd} aluno(s)
+                      </Text>
+
+                      <View style={styles.fleetItemFooter}>
+                        <Text style={[styles.fleetItemDriver, { color: theme.text }]} numberOfLines={1}>
+                          Mot: {item.motoristaNome}{item.veiculoPlaca ? ` • ${item.veiculoPlaca}` : ''}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.fleetItemGps,
+                            { color: item.gpsPosicao ? '#10B981' : theme.subtext },
+                          ]}
+                        >
+                          {item.gpsPosicao
+                            ? `GPS ${formatarHoraGps(item.gpsPosicao.timestamp) || 'ao vivo'}`
+                            : 'Sem GPS'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -906,5 +1218,80 @@ const styles = StyleSheet.create({
   },
   timelineActionBtn: {
     padding: 6,
+  },
+  fleetModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+    padding: 16,
+  },
+  fleetModalCard: {
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+  },
+  fleetModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  fleetModalTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
+  },
+  fleetModalSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  fleetEmptyText: {
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 24,
+  },
+  fleetItemCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 10,
+  },
+  fleetItemTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  fleetItemName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  fleetStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  fleetStatusText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  fleetItemMeta: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  fleetItemFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    gap: 8,
+  },
+  fleetItemDriver: {
+    fontSize: 11,
+    fontWeight: '600',
+    flex: 1,
+  },
+  fleetItemGps: {
+    fontSize: 11,
+    fontWeight: 'bold',
   },
 });
