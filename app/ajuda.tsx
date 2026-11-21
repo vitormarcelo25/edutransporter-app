@@ -1,239 +1,531 @@
 /**
- * v10.1.0 - Beta Release
- * EduTransporter
+ * EduTransporter - Assistente IA (Central de Ajuda Inteligente)
  *
- * Central de Ajuda - FAQ por categorias
- * Perguntas baseadas nas dúvidas reais dos usuários do app
+ * Substitui o antigo FAQ estático por um chat integrado à API de IA (ia/app.py),
+ * com fallback automático na base oficial de conhecimento quando o servidor
+ * da IA estiver offline.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  StyleSheet, Text, View, TouchableOpacity, SafeAreaView,
-  ScrollView, LayoutAnimation, Platform, UIManager, StatusBar, Linking, Alert
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  FlatList,
+  TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { Alert } from '@/components/Alert';
 import { useApp } from './_layout';
+import { useToast } from '../contexts/ToastContext';
+import {
+  checkIaStatus,
+  perguntarIa,
+  SUGESTOES_PERGUNTAS_IA,
+} from '../services/ia';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+interface MensagemIa {
+  id: string;
+  autor: 'usuario' | 'ia';
+  texto: string;
+  horario: string;
+  origem?: 'ia' | 'base-local';
 }
 
-// Categorias de ajuda com ícones
-const CATEGORIES = [
-  { id: 'conta', label: 'Conta & Login', icon: 'user' as const, color: '#3182CE' },
-  { id: 'rotas', label: 'Rotas & Horários', icon: 'bus' as const, color: '#F5A623' },
-  { id: 'presenca', label: 'Presença', icon: 'check-circle' as const, color: '#48BB78' },
-  { id: 'chat', label: 'Chat & Avisos', icon: 'message-circle' as const, color: '#9F7AEA' },
-  { id: 'problemas', label: 'Problemas Técnicos', icon: 'alert-triangle' as const, color: '#EF4444' },
-];
+type StatusIa = 'verificando' | 'online' | 'offline';
 
-// FAQ por categoria
-const FAQ_DATA: Record<string, { id: number; pergunta: string; resposta: string }[]> = {
-  conta: [
-    { id: 1, pergunta: "Esqueci minha senha, como redefino?", resposta: "Na tela de login, toque em 'Esqueceu a senha?'. Você receberá um e-mail com as instruções para criar uma nova senha. Se não receber o e-mail, verifique a caixa de spam ou entre em contato com o suporte." },
-    { id: 2, pergunta: "Como alternar entre perfil de Aluno e Motorista?", resposta: "Na tela de login, antes de entrar, use o seletor de perfil (Aluno/Motorista) no topo do formulário. Cada perfil tem acesso a funcionalidades diferentes no app." },
-    { id: 3, pergunta: "Como atualizar meus dados pessoais?", resposta: "Vá em Perfil > Dados Pessoais. Lá você pode alterar seu e-mail, telefone e endereço. Alterações no nome ou CPF precisam ser validadas pela secretaria." },
-    { id: 4, pergunta: "Posso ter mais de uma conta no app?", resposta: "Não. Cada usuário deve ter apenas uma conta vinculada ao seu CPF ou matrícula. Se precisar de acesso com outro perfil, use a opção 'Sair' e entre com os dados corretos." },
-  ],
-  rotas: [
-    { id: 5, pergunta: "O ônibus não aparece no mapa, o que fazer?", resposta: "Verifique se você tem conexão com internet. O ônibus só aparece quando está em rota ativa (motorista iniciou a rota). Se o motorista já iniciou e mesmo assim não aparece, force o fechamento do app e abra novamente." },
-    { id: 6, pergunta: "Como sei qual é minha rota e horário?", resposta: "Na aba 'Início' (home), sua rota do dia aparece automaticamente com horário, escola e status. Na aba 'Agenda', você pode consultar as rotas dos próximos 7 dias." },
-    { id: 7, pergunta: "A rota foi alterada sem aviso. Como reclamar?", resposta: "Todas as alterações de rota são comunicadas via avisos no app (aba Início) e por notificação push. Se uma alteração não foi comunicada, use o Chat para falar com a central." },
-    { id: 8, pergunta: "Posso solicitar mudança de rota ou parada?", resposta: "Vá em Perfil > Dados Pessoais e envie uma solicitação. Mudanças de rota dependem de análise da central e podem levar até 48 horas para serem processadas." },
-    { id: 9, pergunta: "O horário do ônibus mudou, como fico sabendo?", resposta: "Alterações de horário são enviadas como avisos urgentes no app e como notificação push. Verifique a aba 'Avisos' na home para ver comunicados recentes." },
-  ],
-  presenca: [
-    { id: 10, pergunta: "Como confirmar minha presença no ônibus?", resposta: "Quando embarcar, o motorista pode marcar sua presença automaticamente, ou você pode confirmar no app se a opção estiver disponível. Sua presença aparece na aba 'Início'." },
-    { id: 11, pergunta: "O app marca que estou presente mas não embarquei. Como corrigir?", resposta: "Use a aba 'Chat' para informar à central sobre o erro. O motorista pode ajustar a lista de presença no próprio app." },
-    { id: 12, pergunta: "Meu filho faltou hoje. Preciso justificar?", resposta: "Faltas não precisam de justificativa imediata. Porém, se houver 3 faltas consecutivas, a central pode entrar em contato para verificar a situação." },
-  ],
-  chat: [
-    { id: 13, pergunta: "Como enviar uma mensagem pelo chat?", resposta: "Acesse a aba 'Chat' na barra inferior. Selecione o contato (motorista, central ou outro pai/aluno), digite sua mensagem e envie. Mensagens são enviadas em tempo real." },
-    { id: 14, pergunta: "Posso enviar fotos ou arquivos pelo chat?", resposta: "Atualmente o chat suporta apenas mensagens de texto. Fotos e documentos podem ser enviados por e-mail para suporte@edutransporter.com." },
-    { id: 15, pergunta: "Como silenciar notificações do chat?", resposta: "Vá em Perfil > Notificações e desative a opção 'Mensagens do Chat'. Você ainda receberá notificações de avisos e alterações de rota." },
-    { id: 16, pergunta: "Recebi um aviso urgente, preciso fazer algo?", resposta: "Avisos urgentes (vermelhos) geralmente indicam alterações que afetam sua rota — como mudança de horário, desvio ou cancelamento. Leia a mensagem completa e siga as instruções." },
-  ],
-  problemas: [
-    { id: 17, pergunta: "O app está travando ou fechando sozinho", resposta: "Tente: 1) Fechar o app e abrir novamente, 2) Limpar o cache do app nas configurações do celular, 3) Verificar se há atualização na loja de aplicativos. Se o problema persistir, desinstale e reinstale o app." },
-    { id: 18, pergunta: "Não recebo notificações push", resposta: "Verifique se as notificações estão ativadas nas configurações do celular. No app, vá em Perfil > Notificações e certifique-se de que as opções estão habilitadas." },
-    { id: 19, pergunta: "O mapa não carrega a localização", resposta: "Verifique se o GPS do celular está ativado e se o app tem permissão de localização (Configurações > Apps > EduTransporter > Permissões). Reinicie o app após ativar." },
-    { id: 20, pergunta: "Como reportar um bug ou dar sugestão?", resposta: "Use o Chat para falar com o suporte ou envie um e-mail detalhado para suporte@edutransporter.com com: modelo do celular, versão do app (encontrada na tela de login) e descrição do problema." },
-    { id: 21, pergunta: "O app pede atualizar, sou obrigado?", resposta: "Recomendamos sempre manter o app atualizado para ter acesso a correções e novas funcionalidades. Versões muito antigas podem parar de funcionar após um período." },
-  ],
-};
-
-function AccordionItem({
-  faq,
-  isExpanded,
-  onToggle,
-  theme,
-}: {
-  faq: { pergunta: string; resposta: string };
-  isExpanded: boolean;
-  onToggle: () => void;
-  theme: any;
-}) {
-  return (
-    <View style={[styles.faqCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <TouchableOpacity
-        style={styles.faqQuestionContainer}
-        activeOpacity={0.7}
-        onPress={onToggle}
-      >
-        <Text style={[styles.faqQuestion, isExpanded && { color: theme.gold }]}>
-          {faq.pergunta}
-        </Text>
-        <Feather
-          name={isExpanded ? 'chevron-up' : 'chevron-down'}
-          size={20}
-          color={isExpanded ? theme.gold : theme.subtext}
-        />
-      </TouchableOpacity>
-      {isExpanded && (
-        <View style={styles.faqAnswerContainer}>
-          <Text style={[styles.faqAnswer, { color: theme.subtext }]}>{faq.resposta}</Text>
-        </View>
-      )}
-    </View>
-  );
+let mensagemSeq = 0;
+function proximoIdMensagem(prefixo: string): string {
+  mensagemSeq += 1;
+  return `${prefixo}-${mensagemSeq}`;
 }
 
-export default function Ajuda() {
+function formatarHorarioAtual(): string {
+  const agora = new Date();
+  const h = String(agora.getHours()).padStart(2, '0');
+  const m = String(agora.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function criarMensagemBoasVindas(nomeUsuario?: string): MensagemIa {
+  const primeiroNome = nomeUsuario?.trim().split(/\s+/)[0];
+  return {
+    id: 'boas-vindas',
+    autor: 'ia',
+    texto: `Olá${primeiroNome ? `, ${primeiroNome}` : ''}! Sou o Assistente IA do EduTransporter. Tire suas dúvidas sobre rotas, horários, mapa do ônibus, presença, chat ou sua conta.`,
+    horario: formatarHorarioAtual(),
+  };
+}
+
+export default function AjudaAssistenteIa() {
   const router = useRouter();
-  const { theme } = useApp();
-  const [activeCategory, setActiveCategory] = useState('conta');
-  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+  const { theme, isDark, userData } = useApp();
+  const { addToast } = useToast();
 
-  const toggleFaq = (id: number) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpandedFaq(expandedFaq === id ? null : id);
+  const [messages, setMessages] = useState<MensagemIa[]>(() => [
+    criarMensagemBoasVindas(userData?.nome),
+  ]);
+  const [inputText, setInputText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [statusIa, setStatusIa] = useState<StatusIa>('verificando');
+  const [modeloIa, setModeloIa] = useState<string | undefined>(undefined);
+
+  const flatListRef = useRef<FlatList<MensagemIa>>(null);
+
+  const verificarConexaoIa = useCallback(
+    async (mostrarFeedback = false) => {
+      setStatusIa('verificando');
+      const status = await checkIaStatus();
+      if (status.online) {
+        setStatusIa('online');
+        setModeloIa(status.modelo);
+        if (mostrarFeedback) {
+          addToast(
+            'success',
+            `IA conectada${status.modelo ? ` (${status.modelo})` : ''}.`
+          );
+        }
+      } else {
+        setStatusIa('offline');
+        setModeloIa(undefined);
+        if (mostrarFeedback) {
+          addToast(
+            'info',
+            'Servidor da IA offline. Respostas usando a base oficial do app.'
+          );
+        }
+      }
+    },
+    [addToast]
+  );
+
+  useEffect(() => {
+    let ativo = true;
+    checkIaStatus().then((status) => {
+      if (!ativo) return;
+      if (status.online) {
+        setStatusIa('online');
+        setModeloIa(status.modelo);
+      } else {
+        setStatusIa('offline');
+        setModeloIa(undefined);
+      }
+    });
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [messages.length, sending]);
+
+  const enviarPergunta = async (textoCustom?: string) => {
+    const pergunta = (textoCustom ?? inputText).trim();
+    if (!pergunta || sending) return;
+
+    if (!textoCustom) {
+      setInputText('');
+    }
+
+    const msgUsuario: MensagemIa = {
+      id: proximoIdMensagem('user'),
+      autor: 'usuario',
+      texto: pergunta,
+      horario: formatarHorarioAtual(),
+    };
+
+    setMessages((prev) => [...prev, msgUsuario]);
+    setSending(true);
+
+    try {
+      const resposta = await perguntarIa(pergunta);
+      setStatusIa(resposta.origem === 'ia' ? 'online' : 'offline');
+
+      const msgIa: MensagemIa = {
+        id: proximoIdMensagem('ia'),
+        autor: 'ia',
+        texto: resposta.resposta,
+        horario: formatarHorarioAtual(),
+        origem: resposta.origem,
+      };
+      setMessages((prev) => [...prev, msgIa]);
+    } catch {
+      const msgErro: MensagemIa = {
+        id: proximoIdMensagem('ia-err'),
+        autor: 'ia',
+        texto:
+          'Não foi possível processar sua pergunta agora. Tente novamente ou fale com o suporte em suporte@edutransporter.com.',
+        horario: formatarHorarioAtual(),
+        origem: 'base-local',
+      };
+      setMessages((prev) => [...prev, msgErro]);
+    } finally {
+      setSending(false);
+    }
   };
 
-  const currentFaqs = FAQ_DATA[activeCategory] || [];
+  const limparConversa = () => {
+    setMessages([criarMensagemBoasVindas(userData?.nome)]);
+  };
 
-  const getIconComponent = (iconName: string) => {
-    switch (iconName) {
-      case 'bus': return MaterialCommunityIcons;
-      case 'check-circle': return Feather;
-      case 'message-circle': return Feather;
-      case 'alert-triangle': return Feather;
-      default: return Feather;
+  const abrirSuporteEmail = async () => {
+    const url = 'mailto:suporte@edutransporter.com?subject=Suporte%20EduTransporter';
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(
+          'Suporte EduTransporter',
+          'Envie um e-mail para: suporte@edutransporter.com ou procure a coordenação de transportes.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch {
+      Alert.alert(
+        'Suporte EduTransporter',
+        'E-mail da central de suporte: suporte@edutransporter.com',
+        [{ text: 'OK' }]
+      );
     }
+  };
+
+  const statusConfig = {
+    online: {
+      dot: '#48BB78',
+      label: modeloIa ? `IA Online • ${modeloIa}` : 'IA Online',
+    },
+    offline: {
+      dot: '#F59E0B',
+      label: 'Modo Offline • Base Oficial do App',
+    },
+    verificando: {
+      dot: theme.subtext,
+      label: 'Conectando ao Assistente IA...',
+    },
+  }[statusIa];
+
+  const renderMensagem = ({ item }: { item: MensagemIa }) => {
+    const isUsuario = item.autor === 'usuario';
+
+    return (
+      <View
+        style={[
+          styles.messageWrapper,
+          isUsuario ? styles.wrapperUser : styles.wrapperIa,
+        ]}
+      >
+        {!isUsuario && (
+          <View style={styles.senderHeader}>
+            <View
+              style={[
+                styles.iaMiniBadge,
+                { backgroundColor: `${theme.gold}22` },
+              ]}
+            >
+              <Ionicons name="sparkles" size={11} color={theme.gold} />
+              <Text style={[styles.iaMiniBadgeText, { color: theme.gold }]}>
+                Assistente IA
+              </Text>
+            </View>
+            {item.origem === 'base-local' && (
+              <Text style={[styles.origemTag, { color: theme.subtext }]}>
+                Base oficial
+              </Text>
+            )}
+          </View>
+        )}
+
+        <View
+          style={[
+            styles.bubble,
+            isUsuario
+              ? [styles.bubbleUser, { backgroundColor: theme.gold }]
+              : [
+                  styles.bubbleIa,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: theme.border,
+                  },
+                ],
+          ]}
+        >
+          <Text
+            style={[
+              styles.messageText,
+              {
+                color: isUsuario
+                  ? theme.onAccent || '#1A253A'
+                  : theme.text,
+                fontWeight: isUsuario ? '500' : '400',
+              },
+            ]}
+          >
+            {item.texto}
+          </Text>
+
+          <Text
+            style={[
+              styles.timeText,
+              {
+                color: isUsuario
+                  ? isDark
+                    ? 'rgba(26, 37, 58, 0.72)'
+                    : 'rgba(255, 255, 255, 0.85)'
+                  : theme.subtext,
+              },
+            ]}
+          >
+            {item.horario}
+          </Text>
+        </View>
+      </View>
+    );
   };
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-        <StatusBar barStyle="light-content" />
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: theme.bg }]}
+        edges={['top', 'bottom']}
+      >
+        <StatusBar style={isDark ? 'light' : 'dark'} />
 
-        {/* Header */}
-        <View style={[styles.header, { borderBottomColor: theme.border }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtnWrapper}>
-            <Feather name="arrow-left" size={24} color={theme.textMain} />
+        {/* Cabeçalho */}
+        <View
+          style={[
+            styles.header,
+            {
+              backgroundColor: theme.header || theme.card,
+              borderBottomColor: theme.border,
+            },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+            accessibilityLabel="Voltar"
+          >
+            <Feather name="arrow-left" size={22} color={theme.textMain} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.textMain }]}>Central de Ajuda</Text>
-          <View style={{ width: 40 }} />
-        </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Header Card */}
-          <View style={[styles.helpHeaderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Ionicons name="help-buoy" size={40} color={theme.gold} />
-            <Text style={[styles.helpHeaderTitle, { color: theme.textMain }]}>
-              Como podemos ajudar?
-            </Text>
-            <Text style={[styles.helpHeaderSub, { color: theme.subtext }]}>
-              Selecione uma categoria abaixo ou busque sua dúvida
+          <View style={styles.headerCenter}>
+            <View style={styles.headerTitleRow}>
+              <Ionicons
+                name="sparkles"
+                size={18}
+                color={theme.gold}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={[styles.headerTitle, { color: theme.textMain }]}>
+                Assistente IA
+              </Text>
+            </View>
+            <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+              Dúvidas sobre o EduTransporter
             </Text>
           </View>
 
-          {/* Category Tabs */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesRow}
-          >
-            {CATEGORIES.map((cat) => {
-              const isActive = activeCategory === cat.id;
-              const IconComp = getIconComponent(cat.icon);
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[
-                    styles.categoryChip,
-                    isActive
-                      ? { backgroundColor: cat.color + '22', borderColor: cat.color }
-                      : { backgroundColor: theme.card, borderColor: theme.border },
-                  ]}
-                  onPress={() => {
-                    setExpandedFaq(null);
-                    setActiveCategory(cat.id);
-                  }}
-                >
-                  <IconComp name={cat.icon} size={16} color={isActive ? cat.color : theme.subtext} />
-                  <Text
+          <View style={styles.headerActions}>
+            {messages.length > 1 && (
+              <TouchableOpacity
+                onPress={limparConversa}
+                style={[
+                  styles.headerIconBtn,
+                  { backgroundColor: theme.inset, borderColor: theme.border },
+                ]}
+                accessibilityLabel="Reiniciar conversa"
+              >
+                <Feather name="refresh-cw" size={16} color={theme.textMain} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={abrirSuporteEmail}
+              style={[
+                styles.headerIconBtn,
+                {
+                  backgroundColor: `${theme.gold}18`,
+                  borderColor: `${theme.gold}44`,
+                },
+              ]}
+              accessibilityLabel="Falar com o suporte por e-mail"
+            >
+              <Feather name="mail" size={16} color={theme.gold} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Barra de status da IA */}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => verificarConexaoIa(true)}
+          style={[
+            styles.statusBar,
+            {
+              backgroundColor: theme.inset,
+              borderBottomColor: theme.border,
+            },
+          ]}
+        >
+          <View
+            style={[styles.statusDot, { backgroundColor: statusConfig.dot }]}
+          />
+          <Text style={[styles.statusText, { color: theme.subtext }]}>
+            {statusConfig.label}
+          </Text>
+          <Feather name="refresh-cw" size={12} color={theme.subtext} />
+        </TouchableOpacity>
+
+        {/* Área do chat + barra de envio */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.keyboardView}
+        >
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMensagem}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            ListFooterComponent={
+              sending ? (
+                <View style={[styles.messageWrapper, styles.wrapperIa]}>
+                  <View
                     style={[
-                      styles.categoryChipText,
-                      isActive
-                        ? { color: cat.color }
-                        : { color: theme.subtext },
+                      styles.typingBubble,
+                      {
+                        backgroundColor: theme.card,
+                        borderColor: theme.border,
+                      },
                     ]}
                   >
-                    {cat.label}
+                    <ActivityIndicator size="small" color={theme.gold} />
+                    <Text
+                      style={[styles.typingText, { color: theme.subtext }]}
+                    >
+                      Pensando na resposta...
+                    </Text>
+                  </View>
+                </View>
+              ) : undefined
+            }
+          />
+
+          {/* Sugestões rápidas */}
+          <View
+            style={[
+              styles.chipsContainer,
+              {
+                backgroundColor: theme.inset,
+                borderTopColor: theme.border,
+              },
+            ]}
+          >
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsScroll}
+            >
+              {SUGESTOES_PERGUNTAS_IA.map((sugestao) => (
+                <TouchableOpacity
+                  key={sugestao}
+                  style={[
+                    styles.chipBtn,
+                    {
+                      backgroundColor: theme.card,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                  onPress={() => enviarPergunta(sugestao)}
+                  disabled={sending}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.chipText, { color: theme.text }]}>
+                    {sugestao}
                   </Text>
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+              ))}
+            </ScrollView>
+          </View>
 
-          {/* FAQ List */}
-          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>
-            {CATEGORIES.find((c) => c.id === activeCategory)?.label}
-          </Text>
-
-          {currentFaqs.map((faq) => (
-            <AccordionItem
-              key={faq.id}
-              faq={faq}
-              isExpanded={expandedFaq === faq.id}
-              onToggle={() => toggleFaq(faq.id)}
-              theme={theme}
-            />
-          ))}
-
-          {/* Contact Support */}
-          <TouchableOpacity
-            style={[styles.contactBtn, { backgroundColor: theme.gold }]}
-            onPress={async () => {
-              const url = 'mailto:suporte@edutransporter.com?subject=Suporte%20EduTransporter';
-              try {
-                const canOpen = await Linking.canOpenURL(url);
-                if (canOpen) {
-                  await Linking.openURL(url);
-                } else {
-                  Alert.alert(
-                    'Suporte EduTransporter',
-                    'Envie um e-mail para: suporte@edutransporter.com ou procure a coordenação de transportes.',
-                    [{ text: 'OK' }]
-                  );
-                }
-              } catch {
-                Alert.alert(
-                  'Suporte EduTransporter',
-                  'E-mail da central de suporte: suporte@edutransporter.com',
-                  [{ text: 'OK' }]
-                );
-              }
-            }}
+          {/* Barra de entrada de texto */}
+          <View
+            style={[
+              styles.inputWrapper,
+              {
+                backgroundColor: theme.header || theme.card,
+                borderTopColor: theme.border,
+              },
+            ]}
           >
-            <Feather name="mail" size={20} color="#1A253A" style={{ marginRight: 8 }} />
-            <Text style={styles.contactBtnText}>Falar com o Suporte</Text>
-          </TouchableOpacity>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.inputBg,
+                    color: theme.text,
+                    borderColor: theme.border,
+                  },
+                ]}
+                placeholder="Pergunte algo sobre o app..."
+                placeholderTextColor={theme.subtext}
+                value={inputText}
+                onChangeText={setInputText}
+                returnKeyType="send"
+                onSubmitEditing={() => enviarPergunta()}
+                editable={!sending}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.sendBtn,
+                  {
+                    backgroundColor:
+                      inputText.trim() && !sending
+                        ? theme.gold
+                        : theme.border,
+                  },
+                ]}
+                onPress={() => enviarPergunta()}
+                disabled={!inputText.trim() || sending}
+                accessibilityLabel="Enviar pergunta"
+              >
+                {sending ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={theme.onAccent || '#1A253A'}
+                  />
+                ) : (
+                  <Ionicons
+                    name="send"
+                    size={18}
+                    color={
+                      inputText.trim()
+                        ? theme.onAccent || '#1A253A'
+                        : theme.subtext
+                    }
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </>
   );
@@ -241,49 +533,188 @@ export default function Ajuda() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
+  keyboardView: { flex: 1 },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 20, borderBottomWidth: 1, elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    elevation: 2,
   },
-  headerTitle: { fontSize: 18, fontWeight: 'bold' },
-  backBtnWrapper: { width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-start' },
-
-  content: { padding: 20 },
-
-  helpHeaderCard: {
-    alignItems: 'center', padding: 24, borderRadius: 20,
-    marginBottom: 20, borderWidth: 1,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2, shadowRadius: 8, elevation: 3,
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  helpHeaderTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 10, textAlign: 'center' },
-  helpHeaderSub: { fontSize: 13, textAlign: 'center', marginTop: 6, lineHeight: 18 },
-
-  categoriesRow: { paddingBottom: 16, gap: 8 },
-  categoryChip: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20, borderWidth: 1, marginRight: 4,
-    gap: 6,
+  headerCenter: {
+    flex: 1,
+    marginLeft: 8,
   },
-  categoryChipText: { fontSize: 12, fontWeight: '600' },
-
-  sectionTitle: { fontSize: 15, fontWeight: '700', marginBottom: 12, marginTop: 4 },
-
-  faqCard: { borderRadius: 14, marginBottom: 10, overflow: 'hidden', borderWidth: 1 },
-  faqQuestionContainer: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', padding: 16,
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  faqQuestion: { flex: 1, fontSize: 14, fontWeight: '600', paddingRight: 10 },
-  faqAnswerContainer: { padding: 16, paddingTop: 0 },
-  faqAnswer: { fontSize: 13, lineHeight: 21 },
-
-  contactBtn: {
-    flexDirection: 'row', marginTop: 24, padding: 16,
-    borderRadius: 25, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#F5A623', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 8, elevation: 5,
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
   },
-  contactBtnText: { color: '#1A253A', fontSize: 15, fontWeight: 'bold' },
+  headerSubtitle: {
+    fontSize: 12,
+    marginTop: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  statusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    gap: 8,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '600',
+    flex: 1,
+  },
+
+  listContent: {
+    padding: 16,
+    paddingBottom: 20,
+  },
+  messageWrapper: {
+    marginBottom: 14,
+    maxWidth: '85%',
+  },
+  wrapperUser: {
+    alignSelf: 'flex-end',
+  },
+  wrapperIa: {
+    alignSelf: 'flex-start',
+  },
+
+  senderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 8,
+  },
+  iaMiniBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    gap: 4,
+  },
+  iaMiniBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  origemTag: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+
+  bubble: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 18,
+  },
+  bubbleUser: {
+    borderBottomRightRadius: 4,
+  },
+  bubbleIa: {
+    borderWidth: 1,
+    borderBottomLeftRadius: 4,
+  },
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  timeText: {
+    fontSize: 10,
+    marginTop: 5,
+    alignSelf: 'flex-end',
+  },
+
+  typingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    gap: 10,
+  },
+  typingText: {
+    fontSize: 13,
+  },
+
+  chipsContainer: {
+    borderTopWidth: 1,
+    paddingVertical: 8,
+  },
+  chipsScroll: {
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  chipBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+
+  inputWrapper: {
+    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  input: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    fontSize: 14,
+    borderWidth: 1,
+  },
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
 });

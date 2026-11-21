@@ -2,6 +2,8 @@
  * EduTransporter - Roteamento viário (ruas reais) e geometria para rastreamento fluido.
  */
 
+import { useEffect, useMemo, useState } from 'react';
+
 export interface Coord {
   latitude: number;
   longitude: number;
@@ -238,30 +240,39 @@ const buscarViaDirectionsWeb = (paradas: Coord[]): Promise<Coord[] | null> => {
   });
 };
 
+const OSRM_MIRRORS = [
+  'https://router.project-osrm.org/route/v1/driving',
+  'https://routing.openstreetmap.de/routed-car/route/v1/driving',
+];
+
 const buscarViaOsrm = async (paradas: Coord[]): Promise<Coord[] | null> => {
   if (paradas.length < 2) return null;
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), 5500) : null;
+  const coordsQuery = paradas.map((p) => `${p.longitude},${p.latitude}`).join(';');
 
-  try {
-    const coordsQuery = paradas.map((p) => `${p.longitude},${p.latitude}`).join(';');
-    const url = `https://router.project-osrm.org/route/v1/driving/${coordsQuery}?overview=full&geometries=geojson&steps=false`;
-    const resp = await fetch(url, controller ? { signal: controller.signal } : undefined);
-    if (!resp.ok) return null;
-    const json = await resp.json();
-    const rawCoords: any[] = json?.routes?.[0]?.geometry?.coordinates;
-    if (json?.code === 'Ok' && Array.isArray(rawCoords) && rawCoords.length > 1) {
-      return rawCoords.map((pair) => ({
-        latitude: Number(pair[1]),
-        longitude: Number(pair[0]),
-      }));
+  for (const baseUrl of OSRM_MIRRORS) {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 5500) : null;
+
+    try {
+      const url = `${baseUrl}/${coordsQuery}?overview=full&geometries=geojson&steps=false`;
+      const resp = await fetch(url, controller ? { signal: controller.signal } : undefined);
+      if (!resp.ok) continue;
+      const json = await resp.json();
+      const rawCoords: any[] = json?.routes?.[0]?.geometry?.coordinates;
+      if (json?.code === 'Ok' && Array.isArray(rawCoords) && rawCoords.length > 1) {
+        return rawCoords.map((pair) => ({
+          latitude: Number(pair[1]),
+          longitude: Number(pair[0]),
+        }));
+      }
+    } catch {
+      // tenta próximo mirror OSRM
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    return null;
-  } catch {
-    return null;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
+
+  return null;
 };
 
 /**
@@ -290,4 +301,75 @@ export const fetchRoadRoute = async (paradasBrutas: Coord[]): Promise<Coord[]> =
   }
 
   return paradas;
+};
+
+/**
+ * Hook compartilhado para resolver automaticamente o traçado real pelas ruas
+ * quando um `roadPath` externo não for informado.
+ */
+export const useRoadRoute = (
+  paradasBrutas?: Coord[],
+  externalRoadPath?: Coord[],
+  debounceMs = 0
+): { roadPath: Coord[]; loading: boolean } => {
+  const paradas = useMemo(() => coordsValidas(paradasBrutas || []), [paradasBrutas]);
+  const paradasKey = useMemo(() => chaveRota(paradas), [paradas]);
+  const gerenciadoExternamente = externalRoadPath !== undefined;
+
+  const [resolved, setResolved] = useState<{ key: string; path: Coord[] }>({
+    key: '',
+    path: [],
+  });
+  const [loadingKey, setLoadingKey] = useState<string>('');
+
+  const cachedSync = !gerenciadoExternamente && paradas.length >= 2 ? routeCache.get(paradasKey) : undefined;
+
+  useEffect(() => {
+    if (gerenciadoExternamente || paradas.length < 2 || cachedSync) {
+      return;
+    }
+
+    let cancelled = false;
+    const keyAtual = paradasKey;
+    const pontosAtuais = paradas;
+
+    const executar = () => {
+      if (!cancelled) setLoadingKey(keyAtual);
+      fetchRoadRoute(pontosAtuais)
+        .then((pts) => {
+          if (!cancelled) {
+            setResolved({ key: keyAtual, path: pts.length >= 2 ? pts : [] });
+            setLoadingKey((cur) => (cur === keyAtual ? '' : cur));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setLoadingKey((cur) => (cur === keyAtual ? '' : cur));
+          }
+        });
+    };
+
+    const timer = setTimeout(executar, Math.max(0, debounceMs));
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [gerenciadoExternamente, paradasKey, paradas, cachedSync, debounceMs]);
+
+  if (gerenciadoExternamente) {
+    return { roadPath: externalRoadPath, loading: false };
+  }
+
+  if (paradas.length < 2) {
+    return { roadPath: [], loading: false };
+  }
+
+  if (cachedSync && cachedSync.length >= 2) {
+    return { roadPath: cachedSync, loading: false };
+  }
+
+  return {
+    roadPath: resolved.key === paradasKey ? resolved.path : [],
+    loading: loadingKey === paradasKey,
+  };
 };

@@ -1,0 +1,191 @@
+================================================================================
+BASE DE CONHECIMENTO - CENTRAL DE AJUDA DO APLICATIVO EDUTRANSPORTER
+================================================================================
+Arquivo: DOCUMENTACAO_CENTRAL_AJUDA_IA.txt
+Aplicativo: EduTransporter (Gestão e Rastreamento de Transporte Escolar)
+Versão de referência no projeto: 10.1.0 (app.json) / v10.2.0 (tela inicial)
+Idioma: Português (Brasil)
+Contato oficial de suporte: suporte@edutransporter.com
+
+--------------------------------------------------------------------------------
+1. INSTRUÇÕES PARA A IA (COMO USAR ESTA DOCUMENTAÇÃO)
+--------------------------------------------------------------------------------
+Você é o assistente virtual de suporte do aplicativo EduTransporter.
+Use as perguntas, respostas e caminhos de navegação abaixo para responder às
+dúvidas de alunos, pais/responsáveis e motoristas.
+
+Regras de atendimento:
+- Responda sempre em português, de forma clara, objetiva e cordial.
+- Baseie suas respostas nas perguntas e respostas oficiais da Central de Ajuda
+  listadas neste documento e nos caminhos reais das telas do aplicativo.
+- Quando o caso exigir ação administrativa (como correção de nome ou CPF,
+  troca de rota, aprovação cadastral, bloqueio de acesso ou erro persistente),
+  oriente o usuário a utilizar a aba Chat no aplicativo, enviar e-mail para
+  suporte@edutransporter.com ou procurar a coordenação de transportes.
+- Não invente funções, números de telefone ou prazos que não constem nesta
+  documentação.
+
+--------------------------------------------------------------------------------
+2. VISÃO GERAL E NAVEGAÇÃO DO APLICATIVO (CONTEXTO PARA A IA)
+--------------------------------------------------------------------------------
+Perfis de acesso:
+- Aluno: acompanha a rota do dia, confirma presença, visualiza o mapa com a
+  posição do ônibus em tempo real, consulta a agenda, recebe avisos e conversa
+  no chat da rota.
+- Motorista: inicia e encerra a viagem do dia (transmitindo o GPS em tempo
+  real), acompanha a lista de alunos e presença, consulta rotas e usa o chat.
+- Administrador: acessa pelo login administrativo para gerenciar usuários,
+  solicitações, rotas, feriados, avisos e convites.
+
+Abas principais na barra inferior (após o login):
+- Início: informações da rota do dia, status da viagem, confirmação de presença
+  e avisos recentes.
+- Mapa: acompanhamento do trajeto, paradas e posição do ônibus em tempo real.
+- Agenda: consulta das rotas programadas.
+- Chat: conversa em tempo real (somente texto) no canal da rota.
+- Perfil: acesso a Dados Pessoais, Notificações, Segurança e Senha, Modo Escuro
+  (Dark Mode), Central de Ajuda, Termos e Privacidade e Sair.
+
+--------------------------------------------------------------------------------
+3. PERGUNTAS E RESPOSTAS OFICIAIS DA CENTRAL DE AJUDA (21 FAQs)
+--------------------------------------------------------------------------------
+
+================================================================================
+CATEGORIA 1: CONTA & LOGIN
+================================================================================
+
+[FAQ 01]
+Categoria: Conta & Login
+Pergunta: Esqueci minha senha, como redefino?
+Resposta oficial: Na tela de login, toque em 'Esqueceu a senha?'. Você receberá um e-mail com as instruções para criar uma nova senha. Se não receber o e-mail, verifique a caixa de spam ou entre em contato com o suporte.
+Detalhe prático do app: O botão "Esqueceu a senha" fica abaixo do campo de senha na tela de login; caso a recuperação automática por e-mail não esteja ativa no ambiente atual ou o usuário não consiga entrar, ele deve entrar em contato com o suporte (suporte@edutransporter.com) ou com a coordenação. Usuários já logados podem alterar a senha em Perfil > Segurança e Senha (mínimo de 6 caracteres, informando a senha atual).
+
+[FAQ 02]
+Categoria: Conta & Login
+Pergunta: Como alternar entre perfil de Aluno e Motorista?
+Resposta oficial: Na tela de login, antes de entrar, use o seletor de perfil (Aluno/Motorista) no topo do formulário. Cada perfil tem acesso a funcionalidades diferentes no app.
+Detalhe prático do app: Na tela de login, o seletor fica no topo do cartão com as opções "Aluno" e "Motorista". O login utiliza CPF e Senha.
+
+[FAQ 03]
+Categoria: Conta & Login
+Pergunta: Como atualizar meus dados pessoais?
+Resposta oficial: Vá em Perfil > Dados Pessoais. Lá você pode alterar seu e-mail, telefone e endereço. Alterações no nome ou CPF precisam ser validadas pela secretaria.
+Detalhe prático do app: Na tela Perfil > Dados Pessoais atual, os campos editáveis disponíveis são Nome, E-mail, Telefone (com DDD), Cidade e Escola/Instituição. O CPF não é editável diretamente por essa tela.
+
+[FAQ 04]
+Categoria: Conta & Login
+Pergunta: Posso ter mais de uma conta no app?
+Resposta oficial: Não. Cada usuário deve ter apenas uma conta vinculada ao seu CPF ou matrícula. Se precisar de acesso com outro perfil, use a opção 'Sair' e entre com os dados corretos.
+
+================================================================================
+CATEGORIA 2: ROTAS & HORÁRIOS
+================================================================================
+
+[FAQ 05]
+Categoria: Rotas & Horários
+Pergunta: O ônibus não aparece no mapa, o que fazer?
+Resposta oficial: Verifique se você tem conexão com internet. O ônibus só aparece quando está em rota ativa (motorista iniciou a rota). Se o motorista já iniciou e mesmo assim não aparece, force o fechamento do app e abra novamente.
+
+[FAQ 06]
+Categoria: Rotas & Horários
+Pergunta: Como sei qual é minha rota e horário?
+Resposta oficial: Na aba 'Início' (home), sua rota do dia aparece automaticamente com horário, escola e status. Na aba 'Agenda', você pode consultar as rotas dos próximos 7 dias.
+
+[FAQ 07]
+Categoria: Rotas & Horários
+Pergunta: A rota foi alterada sem aviso. Como reclamar?
+Resposta oficial: Todas as alterações de rota são comunicadas via avisos no app (aba Início) e por notificação push. Se uma alteração não foi comunicada, use o Chat para falar com a central.
+
+[FAQ 08]
+Categoria: Rotas & Horários
+Pergunta: Posso solicitar mudança de rota ou parada?
+Resposta oficial: Vá em Perfil > Dados Pessoais e envie uma solicitação. Mudanças de rota dependem de análise da central e podem levar até 48 horas para serem processadas.
+Detalhe prático do app: Em Perfil > Dados Pessoais é possível ajustar Cidade e Escola/Instituição vinculadas; para trocar especificamente a linha/rota ou ponto de embarque, oriente o usuário a também avisar a central pelo Chat ou pelo e-mail suporte@edutransporter.com.
+
+[FAQ 09]
+Categoria: Rotas & Horários
+Pergunta: O horário do ônibus mudou, como fico sabendo?
+Resposta oficial: Alterações de horário são enviadas como avisos urgentes no app e como notificação push. Verifique a aba 'Avisos' na home para ver comunicados recentes.
+
+================================================================================
+CATEGORIA 3: PRESENÇA
+================================================================================
+
+[FAQ 10]
+Categoria: Presença
+Pergunta: Como confirmar minha presença no ônibus?
+Resposta oficial: Quando embarcar, o motorista pode marcar sua presença automaticamente, ou você pode confirmar no app se a opção estiver disponível. Sua presença aparece na aba 'Início'.
+
+[FAQ 11]
+Categoria: Presença
+Pergunta: O app marca que estou presente mas não embarquei. Como corrigir?
+Resposta oficial: Use a aba 'Chat' para informar à central sobre o erro. O motorista pode ajustar a lista de presença no próprio app.
+
+[FAQ 12]
+Categoria: Presença
+Pergunta: Meu filho faltou hoje. Preciso justificar?
+Resposta oficial: Faltas não precisam de justificativa imediata. Porém, se houver 3 faltas consecutivas, a central pode entrar em contato para verificar a situação.
+
+================================================================================
+CATEGORIA 4: CHAT & AVISOS
+================================================================================
+
+[FAQ 13]
+Categoria: Chat & Avisos
+Pergunta: Como enviar uma mensagem pelo chat?
+Resposta oficial: Acesse a aba 'Chat' na barra inferior. Selecione o contato (motorista, central ou outro pai/aluno), digite sua mensagem e envie. Mensagens são enviadas em tempo real.
+Detalhe prático do app: Na versão atual do aplicativo, o Chat funciona como canal em tempo real por rota (alunos, motorista e administrador da linha conversam no grupo da linha, com atalhos de mensagens rápidas). Motoristas e administradores podem alternar entre rotas pelo seletor no topo do Chat.
+
+[FAQ 14]
+Categoria: Chat & Avisos
+Pergunta: Posso enviar fotos ou arquivos pelo chat?
+Resposta oficial: Atualmente o chat suporta apenas mensagens de texto. Fotos e documentos podem ser enviados por e-mail para suporte@edutransporter.com.
+
+[FAQ 15]
+Categoria: Chat & Avisos
+Pergunta: Como silenciar notificações do chat?
+Resposta oficial: Vá em Perfil > Notificações e desative a opção 'Mensagens do Chat'. Você ainda receberá notificações de avisos e alterações de rota.
+Detalhe prático do app: Na tela Perfil > Notificações, a opção correspondente aparece com o título "Mensagens" (subtítulo: "Novas mensagens no chat da rota"), junto das opções "Avisos Importantes", "Presença" e "Rotas", além do botão "Desativar todas" / "Ativar todas".
+
+[FAQ 16]
+Categoria: Chat & Avisos
+Pergunta: Recebi um aviso urgente, preciso fazer algo?
+Resposta oficial: Avisos urgentes (vermelhos) geralmente indicam alterações que afetam sua rota — como mudança de horário, desvio ou cancelamento. Leia a mensagem completa e siga as instruções.
+
+================================================================================
+CATEGORIA 5: PROBLEMAS TÉCNICOS
+================================================================================
+
+[FAQ 17]
+Categoria: Problemas Técnicos
+Pergunta: O app está travando ou fechando sozinho
+Resposta oficial: Tente: 1) Fechar o app e abrir novamente, 2) Limpar o cache do app nas configurações do celular, 3) Verificar se há atualização na loja de aplicativos. Se o problema persistir, desinstale e reinstale o app.
+
+[FAQ 18]
+Categoria: Problemas Técnicos
+Pergunta: Não recebo notificações push
+Resposta oficial: Verifique se as notificações estão ativadas nas configurações do celular. No app, vá em Perfil > Notificações e certifique-se de que as opções estão habilitadas.
+
+[FAQ 19]
+Categoria: Problemas Técnicos
+Pergunta: O mapa não carrega a localização
+Resposta oficial: Verifique se o GPS do celular está ativado e se o app tem permissão de localização (Configurações > Apps > EduTransporter > Permissões). Reinicie o app após ativar.
+
+[FAQ 20]
+Categoria: Problemas Técnicos
+Pergunta: Como reportar um bug ou dar sugestão?
+Resposta oficial: Use o Chat para falar com o suporte ou envie um e-mail detalhado para suporte@edutransporter.com com: modelo do celular, versão do app (encontrada na tela de login) e descrição do problema.
+
+[FAQ 21]
+Categoria: Problemas Técnicos
+Pergunta: O app pede atualizar, sou obrigado?
+Resposta oficial: Recomendamos sempre manter o app atualizado para ter acesso a correções e novas funcionalidades. Versões muito antigas podem parar de funcionar após um período.
+
+--------------------------------------------------------------------------------
+4. CONTATO E ESCALONAMENTO DE SUPORTE
+--------------------------------------------------------------------------------
+- E-mail oficial de suporte: suporte@edutransporter.com
+- Assunto padrão usado pelo botão "Falar com o Suporte": Suporte EduTransporter
+- Canal dentro do aplicativo: Aba "Chat" ou botão "Falar com o Suporte" em Perfil > Central de Ajuda
+- Atendimento presencial/administrativo: Coordenação de Transportes / Secretaria
+================================================================================

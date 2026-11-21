@@ -39,8 +39,12 @@ import {
   PARADAS_PADRAO_CARUARU,
 } from '../../services/api';
 import { limparPlaca } from '../../services/cpf';
+import { storageHelper } from '../../services/client';
+import { useRoadRoute } from '../../services/routeGeometry';
 import { Alert } from '@/components/Alert';
 import MapViewComponent from '@/components/MapViewComponent';
+
+const ADMIN_DESTINOS_STORAGE_KEY = 'edutransporte_admin_destinos_v2';
 
 const DIAS_SEMANA_OPCOES = [
   { key: 'Dom', label: 'Dom', idx: '0' },
@@ -83,12 +87,12 @@ interface CidadeOrigem {
 }
 
 const CIDADES_ORIGEM: CidadeOrigem[] = [
-  { nome: 'Caruaru', latitude: -8.2833, longitude: -35.9761 },
-  { nome: 'Toritama', latitude: -8.0069, longitude: -36.0569 },
-  { nome: 'Santa Cruz do Capibaribe', latitude: -7.9547, longitude: -36.2056 },
-  { nome: 'Agrestina', latitude: -8.4578, longitude: -35.9458 },
-  { nome: 'Bezerros', latitude: -8.2333, longitude: -35.7958 },
-  { nome: 'São Caetano', latitude: -8.3375, longitude: -36.0694 },
+  { nome: 'Caruaru', latitude: -8.282970, longitude: -35.972285 },
+  { nome: 'Toritama', latitude: -8.008374, longitude: -36.058776 },
+  { nome: 'Santa Cruz do Capibaribe', latitude: -7.948019, longitude: -36.206092 },
+  { nome: 'Agrestina', latitude: -8.455802, longitude: -35.944266 },
+  { nome: 'Bezerros', latitude: -8.237213, longitude: -35.755826 },
+  { nome: 'São Caetano', latitude: -8.330449, longitude: -36.135359 },
 ];
 
 interface DestinoPredefinido {
@@ -103,53 +107,53 @@ const DESTINOS_PREDEFINIDOS: DestinoPredefinido[] = [
   {
     nome: 'UNINASSAU',
     escola: 'Faculdade Maurício de Nassau',
-    endereco: 'Entroncamento BR-232 com BR-104, Caruaru - PE',
-    latitude: -8.2680,
-    longitude: -35.9630,
+    endereco: 'Rodovia BR-104, Km 68, nº 1215 (Entroncamento BR-232/BR-104), Agamenon Magalhães, Caruaru - PE',
+    latitude: -8.302260,
+    longitude: -35.990839,
   },
   {
     nome: 'UFPE - CAA',
     escola: 'UFPE Centro Acadêmico do Agreste',
     endereco: 'Rodovia BR-104, Km 59, Nova Caruaru, Caruaru - PE',
-    latitude: -8.2325,
-    longitude: -35.9892,
+    latitude: -8.225425,
+    longitude: -35.981904,
   },
   {
     nome: 'IFPE Caruaru',
     escola: 'IFPE Campus Caruaru',
-    endereco: 'Estrada do Alto do Moura, km 3,8, Caruaru - PE',
-    latitude: -8.2612,
-    longitude: -35.9895,
+    endereco: 'Estrada do Alto do Moura, Km 3,8, Distrito Industrial III, Caruaru - PE',
+    latitude: -8.296866,
+    longitude: -36.034468,
   },
   {
     nome: 'ASCES-UNITA',
     escola: 'Centro Universitário Tabosa de Almeida',
-    endereco: 'Av. Portugal, 584, Bairro Universitário, Caruaru - PE',
-    latitude: -8.2785,
-    longitude: -35.9675,
+    endereco: 'Av. Portugal, 584 (Campus II), Bairro Universitário, Caruaru - PE',
+    latitude: -8.263749,
+    longitude: -35.965106,
   },
   {
     nome: 'FAVIP / Wyden',
-    escola: 'Faculdade DeVry FAVIP Wyden',
-    endereco: 'Rua Adjar da Silva Casé, 800, Indianópolis, Caruaru - PE',
-    latitude: -8.2740,
-    longitude: -35.9710,
+    escola: 'Centro Universitário UniFavip / Wyden',
+    endereco: 'Av. Adjar da Silva Casé, 800, Indianópolis, Caruaru - PE',
+    latitude: -8.294022,
+    longitude: -35.953284,
   },
   {
     nome: 'FADIRE Santa Cruz',
     escola: 'Faculdade de Desenvolvimento Regional',
-    endereco: 'Av. 29 de Dezembro, Santa Cruz do Capibaribe - PE',
-    latitude: -7.9520,
-    longitude: -36.2010,
+    endereco: 'Rua Profa. Ivani Batista da Silva, 29, Nova Santa Cruz, Santa Cruz do Capibaribe - PE',
+    latitude: -7.947661,
+    longitude: -36.209644,
   },
 ];
 
 const PONTOS_FREQUENTES = [
-  { nome: 'Terminal Rodoviário', endereco: 'Centro, Caruaru - PE', latitude: -8.2842, longitude: -35.9712 },
-  { nome: 'Shopping Difusora', endereco: 'Av. Agamenon Magalhães, Caruaru - PE', latitude: -8.2790, longitude: -35.9734 },
-  { nome: 'Praça Central / Matriz', endereco: 'Centro, Caruaru - PE', latitude: -8.2830, longitude: -35.9720 },
-  { nome: 'Av. Rui Barbosa', endereco: 'Bairro Maurício de Nassau, Caruaru - PE', latitude: -8.2750, longitude: -35.9680 },
-  { nome: 'Av. Portugal (Universitário)', endereco: 'Bairro Universitário, Caruaru - PE', latitude: -8.2770, longitude: -35.9650 },
+  { nome: 'Terminal Rodoviário', endereco: 'Av. Mestre Vitalino, 01, Agamenon Magalhães, Caruaru - PE', latitude: -8.294923, longitude: -35.987779 },
+  { nome: 'Shopping Difusora', endereco: 'Av. Agamenon Magalhães, Maurício de Nassau, Caruaru - PE', latitude: -8.277720, longitude: -35.971736 },
+  { nome: 'Praça Central / Matriz', endereco: 'Praça Nossa Senhora das Dores, Centro, Caruaru - PE', latitude: -8.285324, longitude: -35.970821 },
+  { nome: 'Av. Rui Barbosa', endereco: 'Bairro Maurício de Nassau, Caruaru - PE', latitude: -8.280052, longitude: -35.974282 },
+  { nome: 'Av. Portugal (Universitário)', endereco: 'Bairro Universitário, Caruaru - PE', latitude: -8.264319, longitude: -35.964476 },
 ];
 
 const darkMapStyle = [
@@ -175,6 +179,15 @@ export default function GerenciarRotas() {
 
   // Aba ativa no modal de criação
   const [abaAtiva, setAbaAtiva] = useState<'mapa' | 'dados'>('mapa');
+  const [destinosDisponiveis, setDestinosDisponiveis] = useState<DestinoPredefinido[]>(DESTINOS_PREDEFINIDOS);
+  const [gerenciandoDestinos, setGerenciandoDestinos] = useState(false);
+  const [destinoEditandoIdx, setDestinoEditandoIdx] = useState<number | null>(null);
+  const [destNomeInput, setDestNomeInput] = useState('');
+  const [destEscolaInput, setDestEscolaInput] = useState('');
+  const [destEnderecoInput, setDestEnderecoInput] = useState('');
+  const [destLatInput, setDestLatInput] = useState('');
+  const [destLngInput, setDestLngInput] = useState('');
+  const destinoMapRef = useRef<any>(null);
 
   // Form de criação/edição de rota
   const [rotaEditandoId, setRotaEditandoId] = useState<string | null>(null);
@@ -194,24 +207,24 @@ export default function GerenciarRotas() {
   const [paradasMarcadas, setParadasMarcadas] = useState<Parada[]>([
     {
       id: 'p-1',
-      nome: 'Terminal Rodoviário / Centro',
-      endereco: 'Centro, Caruaru - PE',
-      latitude: -8.2842,
-      longitude: -35.9712,
+      nome: 'Terminal Rodoviário',
+      endereco: 'Av. Mestre Vitalino, 01, Agamenon Magalhães, Caruaru - PE',
+      latitude: -8.294923,
+      longitude: -35.987779,
     },
     {
       id: 'p-2',
-      nome: 'Av. Agamenon Magalhães (Shopping Difusora)',
-      endereco: 'Av. Agamenon Magalhães, Caruaru - PE',
-      latitude: -8.2790,
-      longitude: -35.9734,
+      nome: 'Shopping Difusora / Av. Agamenon',
+      endereco: 'Av. Agamenon Magalhães, Maurício de Nassau, Caruaru - PE',
+      latitude: -8.277720,
+      longitude: -35.971736,
     },
     {
       id: 'p-3',
-      nome: 'Bairro Maurício de Nassau',
-      endereco: 'Av. Rui Barbosa, Caruaru - PE',
-      latitude: -8.2725,
-      longitude: -35.9698,
+      nome: 'Av. Rui Barbosa (Maurício de Nassau)',
+      endereco: 'Bairro Maurício de Nassau, Caruaru - PE',
+      latitude: -8.280052,
+      longitude: -35.974282,
     },
   ]);
 
@@ -222,15 +235,70 @@ export default function GerenciarRotas() {
 
   // Região atual do mapa
   const [mapRegion, setMapRegion] = useState({
-    latitude: -8.2833,
-    longitude: -35.9761,
-    latitudeDelta: 0.04,
-    longitudeDelta: 0.04,
+    latitude: -8.282970,
+    longitude: -35.972285,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
   });
 
   useEffect(() => {
     loadRotas();
   }, []);
+
+  useEffect(() => {
+    let ativo = true;
+    storageHelper.getItem(ADMIN_DESTINOS_STORAGE_KEY).then((raw) => {
+      if (!ativo || !raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const validos = parsed
+            .filter(
+              (d) =>
+                d &&
+                typeof d.nome === 'string' &&
+                typeof d.escola === 'string' &&
+                typeof d.endereco === 'string' &&
+                Number.isFinite(Number(d.latitude)) &&
+                Number.isFinite(Number(d.longitude))
+            )
+            .map((d) => ({
+              nome: d.nome,
+              escola: d.escola,
+              endereco: d.endereco,
+              latitude: Number(d.latitude),
+              longitude: Number(d.longitude),
+            }));
+          if (validos.length > 0) {
+            setDestinosDisponiveis(validos);
+          }
+        }
+      } catch {}
+    });
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  const persistirDestinos = async (lista: DestinoPredefinido[]) => {
+    setDestinosDisponiveis(lista);
+    await storageHelper.setItem(ADMIN_DESTINOS_STORAGE_KEY, JSON.stringify(lista));
+  };
+
+  const focarMapa = (latitude: number, longitude: number, delta = 0.04) => {
+    const novaRegiao = {
+      latitude,
+      longitude,
+      latitudeDelta: delta,
+      longitudeDelta: delta,
+    };
+    setMapRegion(novaRegiao);
+    if (mapAdminRef.current?.animateToRegion) {
+      mapAdminRef.current.animateToRegion(novaRegiao, 600);
+    } else if (mapAdminRef.current?.panTo) {
+      mapAdminRef.current.panTo(latitude, longitude);
+    }
+  };
 
   const loadRotas = async () => {
     setLoading(true);
@@ -256,11 +324,12 @@ export default function GerenciarRotas() {
 
   // Abre modal resetando estado para criação
   const handleAbrirModalCriar = () => {
+    const destinoInicial = destinosDisponiveis[0] || DESTINOS_PREDEFINIDOS[0];
     setRotaEditandoId(null);
     setCidadeOrigem('Caruaru');
-    setDestinoSelecionado(DESTINOS_PREDEFINIDOS[0]);
-    setEscolaDestino(DESTINOS_PREDEFINIDOS[0].escola);
-    setNomeRota(`Linha 0${rotas.length + 1} - Caruaru ➔ ${DESTINOS_PREDEFINIDOS[0].nome}`);
+    setDestinoSelecionado(destinoInicial);
+    setEscolaDestino(destinoInicial.escola);
+    setNomeRota(`Linha 0${rotas.length + 1} - Caruaru ➔ ${destinoInicial.nome}`);
     setHorario('18:00');
     setTipo('Ida');
     setDiasSemanaSelecionados(['Seg', 'Ter', 'Qua', 'Qui', 'Sex']);
@@ -269,21 +338,29 @@ export default function GerenciarRotas() {
     setParadasMarcadas([
       {
         id: `p-${Date.now()}-1`,
-        nome: 'Terminal Rodoviário / Ponto de Partida',
-        endereco: 'Centro, Caruaru - PE',
-        latitude: -8.2842,
-        longitude: -35.9712,
+        nome: 'Terminal Rodoviário',
+        endereco: 'Av. Mestre Vitalino, 01, Agamenon Magalhães, Caruaru - PE',
+        latitude: -8.294923,
+        longitude: -35.987779,
       },
       {
         id: `p-${Date.now()}-2`,
-        nome: 'Av. Agamenon Magalhães (Shopping Difusora)',
-        endereco: 'Av. Agamenon Magalhães, Caruaru - PE',
-        latitude: -8.2790,
-        longitude: -35.9734,
+        nome: 'Shopping Difusora / Av. Agamenon',
+        endereco: 'Av. Agamenon Magalhães, Maurício de Nassau, Caruaru - PE',
+        latitude: -8.277720,
+        longitude: -35.971736,
       },
     ]);
+    setMapRegion({
+      latitude: destinoInicial.latitude,
+      longitude: destinoInicial.longitude,
+      latitudeDelta: 0.045,
+      longitudeDelta: 0.045,
+    });
     setPontoTemporario(null);
     setNomePontoTemporario('');
+    setGerenciandoDestinos(false);
+    setDestinoEditandoIdx(null);
     setAbaAtiva('mapa');
     setModalCriarVisivel(true);
   };
@@ -293,7 +370,7 @@ export default function GerenciarRotas() {
     setRotaEditandoId(rota.id);
     setNomeRota(rota.nome || '');
     setEscolaDestino(rota.escola || '');
-    const destinoMatch = DESTINOS_PREDEFINIDOS.find(
+    const destinoMatch = destinosDisponiveis.find(
       (d) =>
         d.escola.toLowerCase() === String(rota.escola || '').toLowerCase() ||
         String(rota.escola || '').toLowerCase().includes(d.nome.toLowerCase())
@@ -318,6 +395,8 @@ export default function GerenciarRotas() {
     }
     setPontoTemporario(null);
     setNomePontoTemporario('');
+    setGerenciandoDestinos(false);
+    setDestinoEditandoIdx(null);
     setAbaAtiva('dados');
     setModalCriarVisivel(true);
   };
@@ -331,19 +410,7 @@ export default function GerenciarRotas() {
   // Seleciona cidade de origem rápida
   const handleSelecionarCidade = (cid: CidadeOrigem) => {
     setCidadeOrigem(cid.nome);
-    const novaRegiao = {
-      latitude: cid.latitude,
-      longitude: cid.longitude,
-      latitudeDelta: 0.05,
-      longitudeDelta: 0.05,
-    };
-    setMapRegion(novaRegiao);
-
-    if (mapAdminRef.current?.animateToRegion) {
-      mapAdminRef.current.animateToRegion(novaRegiao, 600);
-    } else if (mapAdminRef.current?.panTo) {
-      mapAdminRef.current.panTo(cid.latitude, cid.longitude);
-    }
+    focarMapa(cid.latitude, cid.longitude, 0.05);
 
     if (!nomeRota || nomeRota.includes('➔')) {
       setNomeRota(`Linha ${cid.nome} ➔ ${destinoSelecionado.nome}`);
@@ -354,9 +421,123 @@ export default function GerenciarRotas() {
   const handleSelecionarDestino = (dest: DestinoPredefinido) => {
     setDestinoSelecionado(dest);
     setEscolaDestino(dest.escola);
+    focarMapa(dest.latitude, dest.longitude, 0.03);
     if (!nomeRota || nomeRota.includes('➔')) {
       setNomeRota(`Linha ${cidadeOrigem} ➔ ${dest.nome}`);
     }
+  };
+
+  const handleAbrirConfigDestinos = () => {
+    setDestinoEditandoIdx(null);
+    setGerenciandoDestinos(true);
+  };
+
+  const handleIniciarEdicaoDestino = (idx: number | null) => {
+    if (idx === null) {
+      // Novo atalho de faculdade
+      const base = CIDADES_ORIGEM.find((c) => c.nome === cidadeOrigem) || CIDADES_ORIGEM[0];
+      setDestinoEditandoIdx(-1);
+      setDestNomeInput('');
+      setDestEscolaInput('');
+      setDestEnderecoInput(`${cidadeOrigem} - PE`);
+      setDestLatInput(base.latitude.toFixed(6));
+      setDestLngInput(base.longitude.toFixed(6));
+      return;
+    }
+    const alvo = destinosDisponiveis[idx];
+    if (!alvo) return;
+    setDestinoEditandoIdx(idx);
+    setDestNomeInput(alvo.nome);
+    setDestEscolaInput(alvo.escola);
+    setDestEnderecoInput(alvo.endereco);
+    setDestLatInput(alvo.latitude.toFixed(6));
+    setDestLngInput(alvo.longitude.toFixed(6));
+  };
+
+  const handleSalvarDestinoConfig = async () => {
+    const nome = destNomeInput.trim();
+    const escola = destEscolaInput.trim() || nome;
+    const endereco = destEnderecoInput.trim() || `${cidadeOrigem} - PE`;
+    const lat = Number(destLatInput.replace(',', '.'));
+    const lng = Number(destLngInput.replace(',', '.'));
+
+    if (!nome) {
+      Alert.alert('Atenção', 'Informe o nome curto do atalho (ex: UNINASSAU).');
+      return;
+    }
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+      Alert.alert('Coordenadas inválidas', 'Toque no mapa ou informe latitude e longitude válidas.');
+      return;
+    }
+
+    const novoDestino: DestinoPredefinido = {
+      nome,
+      escola,
+      endereco,
+      latitude: Number(lat.toFixed(6)),
+      longitude: Number(lng.toFixed(6)),
+    };
+
+    let novaLista: DestinoPredefinido[];
+    if (destinoEditandoIdx === -1 || destinoEditandoIdx === null) {
+      novaLista = [...destinosDisponiveis, novoDestino];
+    } else {
+      const antigo = destinosDisponiveis[destinoEditandoIdx];
+      novaLista = destinosDisponiveis.map((item, i) => (i === destinoEditandoIdx ? novoDestino : item));
+      if (antigo && destinoSelecionado.nome === antigo.nome) {
+        setDestinoSelecionado(novoDestino);
+        setEscolaDestino(novoDestino.escola);
+      }
+    }
+
+    await persistirDestinos(novaLista);
+    setDestinoEditandoIdx(null);
+  };
+
+  const handleExcluirDestinoConfig = (idx: number) => {
+    if (destinosDisponiveis.length <= 1) {
+      Alert.alert('Atenção', 'Mantenha pelo menos 1 faculdade configurada nos atalhos.');
+      return;
+    }
+    const alvo = destinosDisponiveis[idx];
+    Alert.alert(
+      'Remover atalho',
+      `Deseja remover "${alvo.nome}" dos atalhos rápidos?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Remover',
+          style: 'destructive',
+          onPress: async () => {
+            const novaLista = destinosDisponiveis.filter((_, i) => i !== idx);
+            await persistirDestinos(novaLista);
+            if (destinoSelecionado.nome === alvo.nome && novaLista[0]) {
+              setDestinoSelecionado(novaLista[0]);
+              setEscolaDestino(novaLista[0].escola);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRestaurarDestinosPadrao = () => {
+    Alert.alert(
+      'Restaurar padrões',
+      'Deseja restaurar os atalhos e coordenadas oficiais das faculdades?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Restaurar',
+          onPress: async () => {
+            await persistirDestinos(DESTINOS_PREDEFINIDOS);
+            setDestinoSelecionado(DESTINOS_PREDEFINIDOS[0]);
+            setEscolaDestino(DESTINOS_PREDEFINIDOS[0].escola);
+            setDestinoEditandoIdx(null);
+          },
+        },
+      ]
+    );
   };
 
   // Clique no mapa: captura as coordenadas georreferenciadas
@@ -516,6 +697,48 @@ export default function GerenciarRotas() {
     );
   };
 
+  // Rota virtual temporária para desenhar no mapa durante a criação
+  const jaTemDestinoNaLista = paradasMarcadas.some(
+    (p) =>
+      p.nome.toLowerCase().includes('destino') ||
+      (escolaDestino.trim() !== '' && p.nome.toLowerCase().includes(escolaDestino.toLowerCase())) ||
+      p.nome.toLowerCase().includes(destinoSelecionado.nome.toLowerCase())
+  );
+
+  const rotaVisualizacaoCriacao: Rota = {
+    id: 'preview-criacao',
+    nome: nomeRota || 'Nova Rota',
+    escola: escolaDestino,
+    horario,
+    tipo,
+    status: 'agendada',
+    paradas: jaTemDestinoNaLista
+      ? paradasMarcadas
+      : [
+          ...paradasMarcadas,
+          // Se tiver destino e ainda não adicionado, desenha o destino final também
+          {
+            id: 'dest-preview',
+            nome: `${destinoSelecionado.nome} (Destino Final)`,
+            endereco: destinoSelecionado.endereco,
+            latitude: destinoSelecionado.latitude,
+            longitude: destinoSelecionado.longitude,
+          },
+        ],
+    alunos: [],
+  };
+
+  const { roadPath: roadPathCriacao, loading: calculandoRotaCriacao } = useRoadRoute(
+    userRole === 'admin' && modalCriarVisivel && !gerenciandoDestinos
+      ? rotaVisualizacaoCriacao.paradas
+      : undefined,
+    undefined,
+    200
+  );
+  const { roadPath: roadPathPreview } = useRoadRoute(
+    userRole === 'admin' ? modalPreviewRota?.paradas : undefined
+  );
+
   if (userRole !== 'admin') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -537,25 +760,34 @@ export default function GerenciarRotas() {
     );
   }
 
-  // Rota virtual temporária para desenhar no mapa durante a criação
-  const rotaVisualizacaoCriacao: Rota = {
-    id: 'preview-criacao',
-    nome: nomeRota || 'Nova Rota',
-    escola: escolaDestino,
-    horario,
-    tipo,
+  const latEditNum = Number(destLatInput.replace(',', '.'));
+  const lngEditNum = Number(destLngInput.replace(',', '.'));
+  const coordDestinoValida =
+    Number.isFinite(latEditNum) &&
+    latEditNum >= -90 &&
+    latEditNum <= 90 &&
+    Number.isFinite(lngEditNum) &&
+    lngEditNum >= -180 &&
+    lngEditNum <= 180;
+
+  const destinoPreviewRota: Rota = {
+    id: 'preview-destino-config',
+    nome: destNomeInput || 'Faculdade',
+    escola: destEscolaInput || destNomeInput || 'Faculdade',
+    horario: '',
+    tipo: 'Ida',
     status: 'agendada',
-    paradas: [
-      ...paradasMarcadas,
-      // Se tiver destino e ainda não adicionado, desenha o destino final também
-      {
-        id: 'dest-preview',
-        nome: `${destinoSelecionado.nome} (Destino Final)`,
-        endereco: destinoSelecionado.endereco,
-        latitude: destinoSelecionado.latitude,
-        longitude: destinoSelecionado.longitude,
-      },
-    ],
+    paradas: coordDestinoValida
+      ? [
+          {
+            id: 'dest-cfg',
+            nome: `${destNomeInput.trim() || 'Faculdade'} (Destino Final)`,
+            endereco: destEnderecoInput.trim() || 'Local marcado no mapa',
+            latitude: latEditNum,
+            longitude: lngEditNum,
+          },
+        ]
+      : [],
     alunos: [],
   };
 
@@ -737,58 +969,241 @@ export default function GerenciarRotas() {
               </TouchableOpacity>
             </View>
 
-            {/* Alternador de Abas: Mapa vs Dados */}
-            <View style={[styles.tabBar, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
-              <TouchableOpacity
-                style={[
-                  styles.tabItem,
-                  abaAtiva === 'mapa' && { backgroundColor: theme.gold },
-                ]}
-                onPress={() => setAbaAtiva('mapa')}
-              >
-                <Feather
-                  name="map"
-                  size={15}
-                  color={abaAtiva === 'mapa' ? '#1A253A' : theme.subtext}
-                />
-                <Text
+            {/* Alternador de Abas: Mapa vs Dados (oculto ao configurar faculdades) */}
+            {!gerenciandoDestinos && (
+              <View style={[styles.tabBar, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+                <TouchableOpacity
                   style={[
-                    styles.tabItemText,
-                    { color: abaAtiva === 'mapa' ? '#1A253A' : theme.text },
+                    styles.tabItem,
+                    abaAtiva === 'mapa' && { backgroundColor: theme.gold },
                   ]}
+                  onPress={() => setAbaAtiva('mapa')}
                 >
-                  Marcar no Mapa ({paradasMarcadas.length})
-                </Text>
-              </TouchableOpacity>
+                  <Feather
+                    name="map"
+                    size={15}
+                    color={abaAtiva === 'mapa' ? '#1A253A' : theme.subtext}
+                  />
+                  <Text
+                    style={[
+                      styles.tabItemText,
+                      { color: abaAtiva === 'mapa' ? '#1A253A' : theme.text },
+                    ]}
+                  >
+                    Marcar no Mapa ({paradasMarcadas.length})
+                  </Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[
-                  styles.tabItem,
-                  abaAtiva === 'dados' && { backgroundColor: theme.gold },
-                ]}
-                onPress={() => setAbaAtiva('dados')}
-              >
-                <Feather
-                  name="list"
-                  size={15}
-                  color={abaAtiva === 'dados' ? '#1A253A' : theme.subtext}
-                />
-                <Text
+                <TouchableOpacity
                   style={[
-                    styles.tabItemText,
-                    { color: abaAtiva === 'dados' ? '#1A253A' : theme.text },
+                    styles.tabItem,
+                    abaAtiva === 'dados' && { backgroundColor: theme.gold },
                   ]}
+                  onPress={() => setAbaAtiva('dados')}
                 >
-                  Dados da Linha
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Feather
+                    name="list"
+                    size={15}
+                    color={abaAtiva === 'dados' ? '#1A253A' : theme.subtext}
+                  />
+                  <Text
+                    style={[
+                      styles.tabItemText,
+                      { color: abaAtiva === 'dados' ? '#1A253A' : theme.text },
+                    ]}
+                  >
+                    Dados da Linha
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
-              {/* ==================================================== */}
-              {/* ABA 1: MAPA INTERATIVO E MARCAÇÃO DE PARADAS */}
-              {/* ==================================================== */}
-              {abaAtiva === 'mapa' ? (
+              {gerenciandoDestinos ? (
+                <View style={styles.abaMapaContainer}>
+                  <View style={styles.configHeaderRow}>
+                    <TouchableOpacity
+                      style={[styles.configBackBtn, { backgroundColor: theme.inputBg, borderColor: theme.border }]}
+                      onPress={() => {
+                        if (destinoEditandoIdx !== null) {
+                          setDestinoEditandoIdx(null);
+                        } else {
+                          setGerenciandoDestinos(false);
+                        }
+                      }}
+                    >
+                      <Feather name="arrow-left" size={14} color={theme.text} />
+                      <Text style={[styles.configBackBtnText, { color: theme.text }]}>
+                        {destinoEditandoIdx !== null ? 'Voltar para lista' : 'Voltar para rota'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {destinoEditandoIdx === null && (
+                      <TouchableOpacity
+                        style={[styles.configAddBtn, { backgroundColor: theme.gold }]}
+                        onPress={() => handleIniciarEdicaoDestino(null)}
+                      >
+                        <Feather name="plus" size={14} color="#1A253A" />
+                        <Text style={styles.configAddBtnText}>Nova Faculdade</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {destinoEditandoIdx === null ? (
+                    <>
+                      <Text style={[styles.dicaMapaText, { color: theme.subtext, marginBottom: 10 }]}>
+                        Edite o endereço ou marque no mapa o ponto exato de cada faculdade/polo educacional.
+                      </Text>
+                      {destinosDisponiveis.map((dest, idx) => (
+                        <View
+                          key={`${dest.nome}-${idx}`}
+                          style={[styles.destinoConfigCard, { backgroundColor: theme.inputBg, borderColor: theme.border }]}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.destinoConfigTitle, { color: theme.text }]}>
+                              {dest.nome} • <Text style={{ color: theme.gold }}>{dest.escola}</Text>
+                            </Text>
+                            <Text style={[styles.destinoConfigAddr, { color: theme.subtext }]} numberOfLines={2}>
+                              {dest.endereco}
+                            </Text>
+                            <Text style={[styles.paradaCoordText, { color: theme.subtext }]}>
+                              GPS: {dest.latitude.toFixed(6)}, {dest.longitude.toFixed(6)}
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            <TouchableOpacity
+                              style={[styles.destinoActionIconBtn, { borderColor: theme.border }]}
+                              onPress={() => handleIniciarEdicaoDestino(idx)}
+                              accessibilityLabel={`Editar ${dest.nome}`}
+                            >
+                              <Feather name="edit-2" size={15} color={theme.gold} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.destinoActionIconBtn, { borderColor: theme.border }]}
+                              onPress={() => handleExcluirDestinoConfig(idx)}
+                              accessibilityLabel={`Excluir ${dest.nome}`}
+                            >
+                              <Feather name="trash-2" size={15} color="#EF4444" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))}
+
+                      <TouchableOpacity
+                        style={[styles.restaurarBtn, { borderColor: theme.border }]}
+                        onPress={handleRestaurarDestinosPadrao}
+                      >
+                        <Feather name="rotate-ccw" size={14} color={theme.subtext} />
+                        <Text style={[styles.restaurarBtnText, { color: theme.subtext }]}>
+                          Restaurar coordenadas e faculdades padrão
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.inputLabel, { color: theme.subtext }]}>
+                        Nome curto do atalho (chip):
+                      </Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+                        placeholder="Ex: UNINASSAU"
+                        placeholderTextColor={theme.subtext}
+                        value={destNomeInput}
+                        onChangeText={setDestNomeInput}
+                      />
+
+                      <Text style={[styles.inputLabel, { color: theme.subtext }]}>
+                        Nome completo da instituição / campus:
+                      </Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+                        placeholder="Ex: Faculdade Maurício de Nassau"
+                        placeholderTextColor={theme.subtext}
+                        value={destEscolaInput}
+                        onChangeText={setDestEscolaInput}
+                      />
+
+                      <Text style={[styles.inputLabel, { color: theme.subtext }]}>
+                        Endereço completo:
+                      </Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+                        placeholder="Ex: Rodovia BR-104, Km 68, nº 1215, Caruaru - PE"
+                        placeholderTextColor={theme.subtext}
+                        value={destEnderecoInput}
+                        onChangeText={setDestEnderecoInput}
+                      />
+
+                      <View style={[styles.rowInputs, { marginTop: 6, gap: 10 }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.inputLabel, { color: theme.subtext }]}>Latitude:</Text>
+                          <TextInput
+                            style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+                            placeholder="-8.302260"
+                            placeholderTextColor={theme.subtext}
+                            keyboardType="numbers-and-punctuation"
+                            value={destLatInput}
+                            onChangeText={setDestLatInput}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.inputLabel, { color: theme.subtext }]}>Longitude:</Text>
+                          <TextInput
+                            style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+                            placeholder="-35.990839"
+                            placeholderTextColor={theme.subtext}
+                            keyboardType="numbers-and-punctuation"
+                            value={destLngInput}
+                            onChangeText={setDestLngInput}
+                          />
+                        </View>
+                      </View>
+
+                      <View style={[styles.dicaMapaBox, { backgroundColor: 'rgba(245,166,35,0.08)', borderColor: 'rgba(245,166,35,0.25)', marginTop: 10 }]}>
+                        <Feather name="crosshair" size={14} color={theme.gold} style={{ marginRight: 6 }} />
+                        <Text style={[styles.dicaMapaText, { color: theme.text }]}>
+                          Toque no mapa abaixo para posicionar exatamente o pino da faculdade.
+                        </Text>
+                      </View>
+
+                      <View style={[styles.mapWrapper, { height: 210, borderColor: theme.border }]}>
+                        <MapViewComponent
+                          mapRef={destinoMapRef}
+                          theme={theme}
+                          isDark={isDark}
+                          rota={destinoPreviewRota}
+                          INITIAL_REGION={{
+                            latitude: coordDestinoValida ? latEditNum : -8.282970,
+                            longitude: coordDestinoValida ? lngEditNum : -35.972285,
+                            latitudeDelta: 0.025,
+                            longitudeDelta: 0.025,
+                          }}
+                          darkMapStyle={darkMapStyle}
+                          onMapPress={(coord) => {
+                            setDestLatInput(coord.latitude.toFixed(6));
+                            setDestLngInput(coord.longitude.toFixed(6));
+                          }}
+                        />
+                      </View>
+
+                      <View style={[styles.modalFooter, { marginTop: 12 }]}>
+                        <TouchableOpacity
+                          style={[styles.btnCancelar, { borderColor: theme.border }]}
+                          onPress={() => setDestinoEditandoIdx(null)}
+                        >
+                          <Text style={[styles.btnCancelarText, { color: theme.text }]}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.btnSalvar, { backgroundColor: theme.gold }]}
+                          onPress={handleSalvarDestinoConfig}
+                        >
+                          <Text style={styles.btnSalvarText}>Salvar Faculdade</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </View>
+              ) : abaAtiva === 'mapa' ? (
                 <View style={styles.abaMapaContainer}>
                   {/* Seletor Rápido de Cidade de Origem */}
                   <Text style={[styles.sectionMiniTitle, { color: theme.subtext }]}>
@@ -833,15 +1248,29 @@ export default function GerenciarRotas() {
                   </ScrollView>
 
                   {/* Seletor Rápido de Polo / Faculdade de Destino */}
-                  <Text style={[styles.sectionMiniTitle, { color: theme.subtext, marginTop: 10 }]}>
-                    2. DESTINO / POLO EDUCACIONAL:
-                  </Text>
+                  <View style={[styles.sectionHeaderRow, { marginTop: 10 }]}>
+                    <Text style={[styles.sectionMiniTitle, { color: theme.subtext, marginBottom: 0 }]}>
+                      2. DESTINO / POLO EDUCACIONAL:
+                    </Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.configBtnMini,
+                        { borderColor: theme.gold, backgroundColor: 'rgba(245,166,35,0.12)' },
+                      ]}
+                      onPress={handleAbrirConfigDestinos}
+                    >
+                      <Feather name="sliders" size={11} color={theme.gold} />
+                      <Text style={[styles.configBtnMiniText, { color: theme.gold }]}>
+                        Configurar Faculdades
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.horizontalChipsScroll}
                   >
-                    {DESTINOS_PREDEFINIDOS.map((dest) => {
+                    {destinosDisponiveis.map((dest) => {
                       const ativo = destinoSelecionado.nome === dest.nome;
                       return (
                         <TouchableOpacity
@@ -889,16 +1318,22 @@ export default function GerenciarRotas() {
                       theme={theme}
                       isDark={isDark}
                       rota={rotaVisualizacaoCriacao}
+                      roadPath={roadPathCriacao}
+                      autoFit={false}
                       INITIAL_REGION={mapRegion}
                       darkMapStyle={darkMapStyle}
                       onMapPress={handleMapPress}
                     />
 
-                    {/* Badge flutuante sobre o mapa indicando contagem */}
+                    {/* Badge flutuante sobre o mapa indicando contagem e traçado nas ruas */}
                     <View style={styles.floatingMapBadge}>
                       <FontAwesome5 name="map-marked-alt" size={12} color="#1A253A" style={{ marginRight: 5 }} />
                       <Text style={styles.floatingMapBadgeText}>
-                        {paradasMarcadas.length} paradas marcadas
+                        {calculandoRotaCriacao
+                          ? `Traçando nas vias... (${paradasMarcadas.length})`
+                          : roadPathCriacao.length > rotaVisualizacaoCriacao.paradas.length
+                            ? `${paradasMarcadas.length} paradas • Traçado nas vias`
+                            : `${paradasMarcadas.length} paradas marcadas`}
                       </Text>
                     </View>
                   </View>
@@ -1266,29 +1701,31 @@ export default function GerenciarRotas() {
             </ScrollView>
 
             {/* Rodapé com botões de ação */}
-            <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={[styles.btnCancelar, { borderColor: theme.border }]}
-                onPress={() => setModalCriarVisivel(false)}
-              >
-                <Text style={[styles.btnCancelarText, { color: theme.text }]}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btnSalvar, { backgroundColor: theme.gold }]}
-                onPress={handleSalvarNovaRota}
-                disabled={salvando}
-              >
-                {salvando ? (
-                  <ActivityIndicator size="small" color="#1A253A" />
-                ) : (
-                  <Text style={styles.btnSalvarText}>
-                    {rotaEditandoId
-                      ? `Salvar Alterações (${paradasMarcadas.length})`
-                      : `Salvar Rota (${paradasMarcadas.length} paradas)`}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            {!gerenciandoDestinos && (
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.btnCancelar, { borderColor: theme.border }]}
+                  onPress={() => setModalCriarVisivel(false)}
+                >
+                  <Text style={[styles.btnCancelarText, { color: theme.text }]}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.btnSalvar, { backgroundColor: theme.gold }]}
+                  onPress={handleSalvarNovaRota}
+                  disabled={salvando}
+                >
+                  {salvando ? (
+                    <ActivityIndicator size="small" color="#1A253A" />
+                  ) : (
+                    <Text style={styles.btnSalvarText}>
+                      {rotaEditandoId
+                        ? `Salvar Alterações (${paradasMarcadas.length})`
+                        : `Salvar Rota (${paradasMarcadas.length} paradas)`}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1331,6 +1768,7 @@ export default function GerenciarRotas() {
                   theme={theme}
                   isDark={isDark}
                   rota={modalPreviewRota}
+                  roadPath={roadPathPreview}
                   INITIAL_REGION={{
                     latitude: modalPreviewRota.paradas?.[0]?.latitude || -8.2833,
                     longitude: modalPreviewRota.paradas?.[0]?.longitude || -35.9761,
@@ -1802,5 +2240,97 @@ const styles = StyleSheet.create({
     color: '#1A253A',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+
+  // Configuração de faculdades/polos pelo admin
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  configBtnMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  configBtnMiniText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  configHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  configBackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  configBackBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  configAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  configAddBtnText: {
+    color: '#1A253A',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  destinoConfigCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  destinoConfigTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  destinoConfigAddr: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  destinoActionIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  restaurarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  restaurarBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

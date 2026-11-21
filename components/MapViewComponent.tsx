@@ -10,6 +10,7 @@ import {
   lerpAngle,
   lerpCoord,
   projetarPosicaoNaRota,
+  useRoadRoute,
 } from '@/services/routeGeometry';
 
 interface MapProps {
@@ -19,6 +20,7 @@ interface MapProps {
   hasPermission?: boolean;
   rota?: any;
   roadPath?: Coord[];
+  autoFit?: boolean;
   busLocation?: any;
   INITIAL_REGION: any;
   darkMapStyle: any;
@@ -35,6 +37,7 @@ export default function MapViewComponent({
   hasPermission = false,
   rota,
   roadPath,
+  autoFit = true,
   busLocation,
   INITIAL_REGION,
   darkMapStyle,
@@ -44,13 +47,14 @@ export default function MapViewComponent({
   onMapPress,
 }: MapProps) {
   const paradas: any[] = rota?.paradas || [];
+  const { roadPath: effectiveRoadPath } = useRoadRoute(rota?.paradas, roadPath, 150);
 
   const fullPath: Coord[] = useMemo(() => {
-    if (roadPath && roadPath.length >= 2) return roadPath;
+    if (effectiveRoadPath && effectiveRoadPath.length >= 2) return effectiveRoadPath;
     return paradas
       .map((p: any) => ({ latitude: Number(p.latitude), longitude: Number(p.longitude) }))
       .filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
-  }, [roadPath, paradas]);
+  }, [effectiveRoadPath, paradas]);
 
   const cumDist = useMemo(() => calcularDistanciasAcumuladas(fullPath), [fullPath]);
 
@@ -176,6 +180,7 @@ export default function MapViewComponent({
   }, [busLocation, fullPath, cumDist, rota?.id]);
 
   const handleMapReady = () => {
+    if (!autoFit) return;
     const ptsFit = fullPath.length > 0 ? fullPath : paradas;
     if (mapRef?.current && ptsFit.length > 1) {
       const coords = ptsFit.map((p: any) => ({

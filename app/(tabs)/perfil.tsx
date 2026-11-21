@@ -135,13 +135,13 @@ export default function Perfil() {
           <Text style={[styles.sectionTitle, { color: theme.subtext }]}>Suporte</Text>
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             
-            {/* Esse botão já leva direto pra tela de ajuda que a gente fez */}
+            {/* Botão para o Assistente IA (antiga Central de Ajuda) */}
             <TouchableOpacity style={styles.item} onPress={() => router.push('/ajuda')}>
               <View style={styles.itemLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(237,137,54,0.1)' }]}>
-                  <Ionicons name="help-buoy-outline" size={18} color="#ED8936" />
+                  <Ionicons name="sparkles-outline" size={18} color="#ED8936" />
                 </View>
-                <Text style={[styles.label, { color: theme.text }]}>Central de Ajuda</Text>
+                <Text style={[styles.label, { color: theme.text }]}>Assistente IA</Text>
               </View>
               <Feather name="chevron-right" size={20} color={theme.subtext} />
             </TouchableOpacity>

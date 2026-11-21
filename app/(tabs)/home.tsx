@@ -8,7 +8,17 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useApp } from '../_layout';
-import { getRotaDoDia, confirmarPresenca, cancelarPresenca, getAdminDashboard, Parada, Rota, ConfirmacaoResponse, AdminStats } from '../../services/api';
+import {
+  getRotaDoDia,
+  confirmarPresenca,
+  cancelarPresenca,
+  getAdminDashboard,
+  contarAvisosNaoLidos,
+  Parada,
+  Rota,
+  ConfirmacaoResponse,
+  AdminStats,
+} from '../../services/api';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -21,6 +31,7 @@ export default function HomeScreen() {
   const [loadingRota, setLoadingRota] = useState(true);
   const [loadingConfirmacao, setLoadingConfirmacao] = useState(false);
   const [avisoDia, setAvisoDia] = useState<string | null>(null);
+  const [avisosNaoLidos, setAvisosNaoLidos] = useState(0);
 
   const handleConfirmarPresenca = async () => {
     setLoadingConfirmacao(true);
@@ -107,18 +118,34 @@ export default function HomeScreen() {
     }
   };
 
+  const userId = userData?.id;
+  const loadAvisosBadge = React.useCallback(async () => {
+    if (userRole === 'admin') return;
+    try {
+      const qtd = await contarAvisosNaoLidos(userRole, userId);
+      setAvisosNaoLidos(qtd);
+    } catch {}
+  }, [userRole, userId]);
+
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadRotaData();
+    await Promise.all([loadRotaData(), loadAvisosBadge()]);
     setRefreshing(false);
   };
 
-  // Recarrega a rota sempre que a tela entra em foco (ex: voltar de outra tela)
+  // Recarrega a rota e avisos não lidos sempre que a tela entra em foco
   useFocusEffect(
     React.useCallback(() => {
       loadRotaData();
-    }, [userData?.id, userRole])
+      loadAvisosBadge();
+
+      if (userRole === 'admin') return;
+      const interval = setInterval(() => {
+        loadAvisosBadge();
+      }, 20000);
+      return () => clearInterval(interval);
+    }, [userData?.id, userRole, loadAvisosBadge])
   );
 
   const calcularChegada = (saida: string, qtdParadas: number) => {
@@ -181,17 +208,49 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={[styles.profileBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.border, marginRight: 10 }]}
-            onPress={onRefresh}
-            accessibilityLabel="Atualizar"
-          >
-            {refreshing ? (
-              <ActivityIndicator size="small" color={theme.gold} />
-            ) : (
-              <Feather name="refresh-cw" size={16} color={theme.gold} />
-            )}
-          </TouchableOpacity>
+          {userRole === 'admin' ? (
+            <TouchableOpacity
+              style={[styles.profileBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.border, marginRight: 10 }]}
+              onPress={onRefresh}
+              accessibilityLabel="Atualizar"
+            >
+              {refreshing ? (
+                <ActivityIndicator size="small" color={theme.gold} />
+              ) : (
+                <Feather name="refresh-cw" size={16} color={theme.gold} />
+              )}
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[
+                styles.avisosHeaderBtn,
+                avisosNaoLidos > 0 && styles.avisosHeaderBtnComBadge,
+                {
+                  backgroundColor: avisosNaoLidos > 0 ? 'rgba(239,68,68,0.12)' : 'transparent',
+                  borderColor: avisosNaoLidos > 0 ? '#EF4444' : theme.border,
+                },
+              ]}
+              onPress={() => router.push('/avisos')}
+              accessibilityLabel={
+                avisosNaoLidos > 0
+                  ? `Avisos (${avisosNaoLidos} não lidos)`
+                  : 'Mural de Avisos'
+              }
+            >
+              <Feather
+                name="bell"
+                size={17}
+                color={avisosNaoLidos > 0 ? '#EF4444' : theme.gold}
+              />
+              {avisosNaoLidos > 0 && (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>
+                    {avisosNaoLidos > 99 ? '99+' : avisosNaoLidos}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity 
             style={[
               styles.profileBtn, 
@@ -653,13 +712,6 @@ export default function HomeScreen() {
                 <Text style={[styles.gridLabel, { color: theme.text }]}>Ver Mapa</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/avisos')}>
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(239,68,68,0.1)' }]}>
-                  <Feather name="bell" size={22} color="#EF4444" />
-                </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Mural Avisos</Text>
-              </TouchableOpacity>
-
               <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/(tabs)/chat')}>
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(66,153,225,0.1)' }]}>
                   <Feather name="message-circle" size={22} color="#4299E1" />
@@ -676,9 +728,9 @@ export default function HomeScreen() {
 
               <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/ajuda')}>
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(49,130,206,0.1)' }]}>
-                  <Feather name="help-circle" size={22} color="#3182CE" />
+                  <Ionicons name="sparkles-outline" size={22} color="#3182CE" />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Ajuda</Text>
+                <Text style={[styles.gridLabel, { color: theme.text }]}>Assistente IA</Text>
               </TouchableOpacity>
             </>
           )}
@@ -858,10 +910,10 @@ export default function HomeScreen() {
                     backgroundColor: isDark ? 'rgba(125,211,252,0.16)' : 'rgba(3,105,161,0.14)' 
                   }
                 ]}>
-                  <Feather name="help-circle" size={24} color={theme.blue || '#7DD3FC'} />
+                  <Ionicons name="sparkles-outline" size={24} color={theme.blue || '#7DD3FC'} />
                 </View>
                 <Text style={[styles.gridLabel, { color: theme.text, fontSize: 15, fontWeight: '700', marginTop: 10 }]}>
-                  Ajuda
+                  Assistente IA
                 </Text>
               </TouchableOpacity>
             </>
@@ -913,9 +965,9 @@ export default function HomeScreen() {
 
               <TouchableOpacity style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.push('/ajuda')}>
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(49,130,206,0.1)' }]}>
-                  <Feather name="help-circle" size={22} color="#3182CE" />
+                  <Ionicons name="sparkles-outline" size={22} color="#3182CE" />
                 </View>
-                <Text style={[styles.gridLabel, { color: theme.text }]}>Ajuda</Text>
+                <Text style={[styles.gridLabel, { color: theme.text }]}>Assistente IA</Text>
               </TouchableOpacity>
             </>
           )}
@@ -943,8 +995,35 @@ const styles = StyleSheet.create({
   welcomeText: { fontSize: 24, fontWeight: 'bold' },
   statusSub: { fontSize: 13, marginTop: 4, fontWeight: '500' },
   
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   profileBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  avisosHeaderBtn: {
+    minWidth: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avisosHeaderBtnComBadge: {
+    paddingHorizontal: 10,
+    gap: 6,
+  },
+  bellBadge: {
+    minWidth: 19,
+    height: 19,
+    borderRadius: 10,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bellBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
 
   scroll: { padding: 20 },
 

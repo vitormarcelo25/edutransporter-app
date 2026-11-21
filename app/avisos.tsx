@@ -16,13 +16,13 @@ import { Stack, useRouter } from 'expo-router';
 import { useApp } from './_layout';
 import { useToast } from '../contexts/ToastContext';
 import { useNotify } from '../hooks/useNotifications';
-import { getAvisos, AvisosResponse, Aviso } from '@/services/api';
+import { getAvisos, marcarAvisosComoVistos, AvisosResponse, Aviso } from '@/services/api';
 import { LoadingSpinner, LoadingDots } from '../components/ui/LoadingSpinner';
 import { EmptyState } from '../components/ui/EmptyState';
 
 export default function Avisos() {
   const router = useRouter();
-  const { theme } = useApp();
+  const { theme, userRole, userData } = useApp();
   const { addToast } = useToast();
   const { aviso: sendAvisoNotification } = useNotify();
   
@@ -38,7 +38,8 @@ export default function Avisos() {
       
       if (result.success && result.avisos) {
         setAvisos(result.avisos);
-        
+        await marcarAvisosComoVistos(result.avisos, userRole, userData?.id);
+
         // Envia notificação para cada aviso urgente
         result.avisos.forEach((aviso) => {
           if (aviso.tipo === 'urgente') {

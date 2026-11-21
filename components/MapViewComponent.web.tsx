@@ -9,6 +9,7 @@ import {
   lerpAngle,
   lerpCoord,
   projetarPosicaoNaRota,
+  useRoadRoute,
 } from '@/services/routeGeometry';
 
 interface MapProps {
@@ -18,6 +19,7 @@ interface MapProps {
   hasPermission?: boolean;
   rota?: any;
   roadPath?: Coord[];
+  autoFit?: boolean;
   busLocation?: any;
   INITIAL_REGION?: any;
   darkMapStyle?: any;
@@ -176,6 +178,7 @@ export default function MapViewComponent({
   isDark,
   rota,
   roadPath,
+  autoFit = true,
   busLocation,
   INITIAL_REGION,
   darkMapStyle,
@@ -184,6 +187,7 @@ export default function MapViewComponent({
   onSelectBus,
   onMapPress,
 }: MapProps) {
+  const { roadPath: effectiveRoadPath } = useRoadRoute(rota?.paradas, roadPath, 150);
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const infoRef = useRef<any>(null);
@@ -352,12 +356,12 @@ export default function MapViewComponent({
       markersRef.current.push(marker);
     });
 
-    const fitKey = `${rota?.id || ''}_${paradas.length}_${roadPath?.length || 0}`;
-    if (lastFittedKeyRef.current !== fitKey) {
+    const fitKey = `${rota?.id || ''}_${paradas.length}_${effectiveRoadPath?.length || 0}`;
+    if (autoFit && lastFittedKeyRef.current !== fitKey) {
       lastFittedKeyRef.current = fitKey;
       const ptsToFit =
-        roadPath && roadPath.length >= 2
-          ? roadPath.map((p) => ({ lat: p.latitude, lng: p.longitude }))
+        effectiveRoadPath && effectiveRoadPath.length >= 2
+          ? effectiveRoadPath.map((p) => ({ lat: p.latitude, lng: p.longitude }))
           : pathStops;
 
       if (ptsToFit.length > 1) {
@@ -366,12 +370,16 @@ export default function MapViewComponent({
         if (busLocation && busLocation.latitude != null) {
           bounds.extend({ lat: Number(busLocation.latitude), lng: Number(busLocation.longitude) });
         }
-        map.fitBounds(bounds, { top: 70, bottom: 180, left: 40, right: 40 });
+        const mapaCompacto = (divRef.current?.clientHeight || 600) < 380;
+        const padding = mapaCompacto
+          ? { top: 32, bottom: 32, left: 32, right: 32 }
+          : { top: 70, bottom: 180, left: 40, right: 40 };
+        map.fitBounds(bounds, padding);
       } else if (ptsToFit.length === 1) {
         map.panTo(ptsToFit[0]);
       }
     }
-  }, [ready, rota, roadPath, selectedParada, isDark]);
+  }, [ready, rota, effectiveRoadPath, autoFit, selectedParada, isDark]);
 
   // Polilinha dividida (trecho percorrido cinza apagado + restante destacado) e ônibus animado
   useEffect(() => {
@@ -381,8 +389,8 @@ export default function MapViewComponent({
 
     const paradas: any[] = rota?.paradas || [];
     const fullPath: Coord[] =
-      roadPath && roadPath.length >= 2
-        ? roadPath
+      effectiveRoadPath && effectiveRoadPath.length >= 2
+        ? effectiveRoadPath
         : paradas
             .map((p) => ({ latitude: Number(p.latitude), longitude: Number(p.longitude) }))
             .filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
@@ -570,7 +578,7 @@ export default function MapViewComponent({
         animFrameRef.current = null;
       }
     };
-  }, [ready, rota?.id, rota?.paradas, roadPath, busLocation, isDark]);
+  }, [ready, rota?.id, rota?.paradas, effectiveRoadPath, busLocation, isDark]);
 
   return (
     <View style={styles.mapContainer}>

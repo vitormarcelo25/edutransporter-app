@@ -52,3 +52,9 @@ app-example
 
 # Vercel
 .vercel/
+
+# Python (IA)
+__pycache__/
+*.py[cod]
+.venv/
+ia/.venv/

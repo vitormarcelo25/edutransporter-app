@@ -454,11 +454,11 @@ const normalizarStatusRota = (status?: string | null): Rota['status'] => {
 // ==========================================
 
 const PARADAS_MOCK: Parada[] = [
-  { id: 'p1', nome: 'Terminal Rodoviário / Centro', endereco: 'Praça Dom Vital, Centro, Caruaru - PE', latitude: -8.2842, longitude: -35.9712 },
-  { id: 'p2', nome: 'Shopping Difusora / Av. Agamenon', endereco: 'Av. Agamenon Magalhães, 444, Caruaru - PE', latitude: -8.2801, longitude: -35.9734 },
-  { id: 'p3', nome: 'Parada Bairro Maurício de Nassau', endereco: 'Av. Oswaldo Cruz, Caruaru - PE', latitude: -8.2725, longitude: -35.9698 },
-  { id: 'p4', nome: 'IFPE Campus Caruaru', endereco: 'Estrada do Alto do Moura, km 3,8, Caruaru - PE', latitude: -8.2612, longitude: -35.9895 },
-  { id: 'p5', nome: 'Faculdade Maurício de Nassau (Destino)', endereco: 'Entroncamento BR-232 com BR-104, Caruaru - PE', latitude: -8.2680, longitude: -35.9630 },
+  { id: 'p1', nome: 'Praça Dom Vital / Centro', endereco: 'Praça Dom Vital, Centro, Caruaru - PE', latitude: -8.2842, longitude: -35.9712 },
+  { id: 'p2', nome: 'Shopping Difusora / Av. Agamenon', endereco: 'Av. Agamenon Magalhães, 444, Caruaru - PE', latitude: -8.277720, longitude: -35.971736 },
+  { id: 'p3', nome: 'Parada Bairro Maurício de Nassau', endereco: 'Av. Rui Barbosa, Maurício de Nassau, Caruaru - PE', latitude: -8.280052, longitude: -35.974282 },
+  { id: 'p4', nome: 'IFPE Campus Caruaru', endereco: 'Estrada do Alto do Moura, km 3,8, Caruaru - PE', latitude: -8.296866, longitude: -36.034468 },
+  { id: 'p5', nome: 'Faculdade Maurício de Nassau (Destino)', endereco: 'Rodovia BR-104, Km 68, nº 1215 (Entroncamento BR-232/BR-104), Agamenon Magalhães, Caruaru - PE', latitude: -8.302260, longitude: -35.990839 },
 ];
 
 let MOCK_SOLICITACOES: SolicitacaoAluno[] = [
@@ -1326,7 +1326,7 @@ const salvarPresencaDb = async (viagemId: any, alunoCpf: string, presente: boole
 export const PARADAS_PADRAO_CARUARU: Parada[] = [
   {
     id: 'p1',
-    nome: 'Terminal Rodoviário / Centro',
+    nome: 'Praça Dom Vital / Centro',
     endereco: 'Praça Dom Vital, Centro, Caruaru - PE',
     latitude: -8.2842,
     longitude: -35.9712,
@@ -1335,29 +1335,29 @@ export const PARADAS_PADRAO_CARUARU: Parada[] = [
     id: 'p2',
     nome: 'Shopping Difusora / Av. Agamenon',
     endereco: 'Av. Agamenon Magalhães, 444, Caruaru - PE',
-    latitude: -8.2801,
-    longitude: -35.9734,
+    latitude: -8.277720,
+    longitude: -35.971736,
   },
   {
     id: 'p3',
     nome: 'Parada Bairro Maurício de Nassau',
-    endereco: 'Av. Oswaldo Cruz, Caruaru - PE',
-    latitude: -8.2725,
-    longitude: -35.9698,
+    endereco: 'Av. Rui Barbosa, Maurício de Nassau, Caruaru - PE',
+    latitude: -8.280052,
+    longitude: -35.974282,
   },
   {
     id: 'p4',
     nome: 'IFPE Campus Caruaru',
     endereco: 'Estrada do Alto do Moura, km 3,8, Caruaru - PE',
-    latitude: -8.2612,
-    longitude: -35.9895,
+    latitude: -8.296866,
+    longitude: -36.034468,
   },
   {
     id: 'p5',
     nome: 'Faculdade Maurício de Nassau (Destino)',
-    endereco: 'Entroncamento BR-232 com BR-104, Caruaru - PE',
-    latitude: -8.2680,
-    longitude: -35.9630,
+    endereco: 'Rodovia BR-104, Km 68, nº 1215 (Entroncamento BR-232/BR-104), Agamenon Magalhães, Caruaru - PE',
+    latitude: -8.302260,
+    longitude: -35.990839,
   },
 ];
 
@@ -1397,9 +1397,9 @@ export const ROTAS_PADRAO_INICIAIS: Rota[] = [
     tipo: 'Ida',
     status: 'agendada',
     paradas: [
-      { id: 'if-1', nome: 'Terminal Rodoviário', endereco: 'Praça Dom Vital, Caruaru - PE', latitude: -8.2842, longitude: -35.9712 },
-      { id: 'if-2', nome: 'Av. Agamenon Magalhães', endereco: 'Shopping Difusora, Caruaru - PE', latitude: -8.2801, longitude: -35.9734 },
-      { id: 'if-3', nome: 'IFPE Campus Caruaru (Destino)', endereco: 'Estrada do Alto do Moura, Caruaru - PE', latitude: -8.2612, longitude: -35.9895 },
+      { id: 'if-1', nome: 'Terminal Rodoviário', endereco: 'Av. Mestre Vitalino, 01, Agamenon Magalhães, Caruaru - PE', latitude: -8.294923, longitude: -35.987779 },
+      { id: 'if-2', nome: 'Av. Agamenon Magalhães', endereco: 'Shopping Difusora, Caruaru - PE', latitude: -8.277720, longitude: -35.971736 },
+      { id: 'if-3', nome: 'IFPE Campus Caruaru (Destino)', endereco: 'Estrada do Alto do Moura, km 3,8, Caruaru - PE', latitude: -8.296866, longitude: -36.034468 },
     ],
     alunos: [],
   },
@@ -1645,6 +1645,51 @@ export const getAvisos = async (): Promise<AvisosResponse> => {
     avisos: avisosCache,
     message: avisosCache.length > 0 ? undefined : 'Sem conexão com o servidor para carregar os avisos.',
   };
+};
+
+const getAvisosVistosKey = (role?: string, userId?: string): string =>
+  `edutransporte_avisos_vistos_${role || 'user'}_${String(userId || 'anon').replace(/\W/g, '')}`;
+
+/** Conta quantos avisos ativos ainda não foram vistos pelo usuário atual. */
+export const contarAvisosNaoLidos = async (
+  role?: string,
+  userId?: string
+): Promise<number> => {
+  const res = await getAvisos();
+  const lista = res.avisos || [];
+  if (lista.length === 0) return 0;
+
+  let vistos = new Set<string>();
+  try {
+    const raw = await storageHelper.getItem(getAvisosVistosKey(role, userId));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) vistos = new Set(parsed.map(String));
+    }
+  } catch {}
+
+  return lista.filter((a) => !vistos.has(String(a.id))).length;
+};
+
+/** Marca os avisos exibidos como lidos/vistos pelo usuário atual. */
+export const marcarAvisosComoVistos = async (
+  avisos: Aviso[],
+  role?: string,
+  userId?: string
+): Promise<void> => {
+  if (!avisos || avisos.length === 0) return;
+  try {
+    const key = getAvisosVistosKey(role, userId);
+    const raw = await storageHelper.getItem(key);
+    const existentes = raw ? JSON.parse(raw) : [];
+    const merged = Array.from(
+      new Set([
+        ...(Array.isArray(existentes) ? existentes.map(String) : []),
+        ...avisos.map((a) => String(a.id)),
+      ])
+    );
+    await storageHelper.setItem(key, JSON.stringify(merged));
+  } catch {}
 };
 
 export const createAviso = async (dados: {
